@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ====================================================================
 # Clean Script
-# Entfernt generierte Build-Artefakte (STL, STEP, PNG, PyCache)
+# Bereinigt generierte Artefakte in 'build/' und 'preview/'
 # ====================================================================
 
 set -euo pipefail
@@ -13,62 +13,70 @@ BOLD="\033[1m"
 NC="\033[0m"
 
 KEEP_STEP=false
-TARGET_DIR="."
+KEEP_PREVIEW=false
 
-# Parameter parsen
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --keep-step|-s)
             KEEP_STEP=true
             shift
             ;;
+        --keep-preview|-p)
+            KEEP_PREVIEW=true
+            shift
+            ;;
         -h|--help)
-            echo "Verwendung: $0 [OPTIONEN] [VERZEICHNIS]"
+            echo "Verwendung: $0 [OPTIONEN]"
             echo ""
             echo "Optionen:"
-            echo "  --keep-step, -s   Löscht STL-, PNG- und Cache-Dateien, behält aber STEP-Dateien"
-            echo "  -h, --help        Zeigt diese Hilfe an"
+            echo "  --keep-step, -s      Behält STEP-Dateien in 'build/'"
+            echo "  --keep-preview, -p   Behält Screenshots in 'preview/'"
+            echo "  -h, --help           Zeigt diese Hilfe an"
             echo ""
             echo "Beispiele:"
-            echo "  $0               # Löscht alle generierten Dateien (STL, STEP, PNG)"
-            echo "  $0 --keep-step   # Löscht STL & PNG, behält STEP für Fusion"
+            echo "  $0                  # Löscht 'build/' und 'preview/' vollständig"
+            echo "  $0 --keep-step      # Löscht STLs und Vorschauen, behält STEPs"
             exit 0
             ;;
         *)
-            TARGET_DIR="$1"
             shift
             ;;
     esac
 done
 
-echo -e "${BOLD}${BLUE}=== Starte Bereinigung in '${TARGET_DIR}' ===${NC}"
+echo -e "${BOLD}${BLUE}=== Starte Bereinigung ===${NC}"
 
-PATTERNS=("*.stl" "*.png")
-
-if [[ "$KEEP_STEP" == true ]]; then
-    echo -e "${YELLOW}Hinweis: STEP-Dateien werden beibehalten (--keep-step).${NC}"
+# 1. Preview-Ordner
+if [[ "$KEEP_PREVIEW" == true ]]; then
+    echo -e "${YELLOW}Hinweis: 'preview/' wird beibehalten (--keep-preview).${NC}"
 else
-    PATTERNS+=("*.step" "*.stp")
+    if [[ -d "preview" ]]; then
+        rm -rf preview
+        echo "  ✓ Ordner 'preview/' gelöscht."
+    fi
 fi
 
-COUNT=0
+# 2. Build-Ordner
+if [[ "$KEEP_STEP" == true ]]; then
+    echo -e "${YELLOW}Hinweis: STEP-Dateien in 'build/' werden beibehalten (--keep-step).${NC}"
+    if [[ -d "build" ]]; then
+        find build -type f ! -name "*.step" ! -name "*.stp" -delete
+        echo "  ✓ Nicht-STEP-Dateien in 'build/' gelöscht."
+    fi
+else
+    if [[ -d "build" ]]; then
+        rm -rf build
+        echo "  ✓ Ordner 'build/' gelöscht."
+    fi
+fi
 
-for pattern in "${PATTERNS[@]}"; do
-    # Nullglob-Verhalten simulieren
-    for file in "${TARGET_DIR}"/$pattern; do
-        if [[ -f "$file" ]]; then
-            rm -f "$file"
-            echo "  ✓ Gelöscht: $(basename "$file")"
-            COUNT=$((COUNT + 1))
-        fi
-    done
+# 3. Alte Artefakte im Root-Verzeichnis bereinigen falls vorhanden
+find . -maxdepth 1 -name "*.stl" -o -name "*.step" -o -name "*.stp" -o -name "*.png" | while read -r f; do
+    rm -f "$f"
+    echo "  ✓ Root-Datei gelöscht: $(basename "$f")"
 done
 
-# __pycache__ Verzeichnisse bereinigen
-find "${TARGET_DIR}" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+# 4. Cache
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
-if [[ $COUNT -eq 0 ]]; then
-    echo -e "${GREEN}Verzeichnis ist bereits sauber (keine zu löschenden Dateien gefunden).${NC}"
-else
-    echo -e "\n${BOLD}${GREEN}✔ Bereinigung abgeschlossen: ${COUNT} Datei(en) gelöscht.${NC}"
-fi
+echo -e "\n${BOLD}${GREEN}✔ Bereinigung abgeschlossen!${NC}"
