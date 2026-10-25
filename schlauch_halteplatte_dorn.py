@@ -308,14 +308,6 @@ def export_all(output_dir: str = "."):
     export_step(druckbett_layout, str(step_druckbett))
     print(f"  ✓ Druckbett-Layout STEP: {step_druckbett}")
 
-    # Optional STL-Export für direkten 3D-Druck
-    stl_bracket = out / "wandhalterung_b3d.stl"
-    stl_steck = out / "dorn_einschub_steckdorn_b3d.stl"
-    export_stl(bracket, str(stl_bracket))
-    export_stl(steckdorn, str(stl_steck))
-    print(f"  ✓ STL exportiert: {stl_bracket}")
-    print(f"  ✓ STL exportiert: {stl_steck}")
-
     print("\n" + "=" * 60)
     print("Alle STEP-Dateien erfolgreich für Autodesk Fusion exportiert!")
     print("=" * 60)

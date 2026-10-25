@@ -1,0 +1,10 @@
+# Generierte 3D-Druck- und CAD-Artefakte
+*.stl
+*.step
+*.stp
+*.png
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
