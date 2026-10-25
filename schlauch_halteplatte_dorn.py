@@ -308,8 +308,19 @@ def export_all(output_dir: str = "."):
     export_step(druckbett_layout, str(step_druckbett))
     print(f"  ✓ Druckbett-Layout STEP: {step_druckbett}")
 
+    # 5. STL-Export für direkten 3D-Druck (nativ via build123d)
+    print("\n[5/5] Erzeuge STL-Druckdateien...")
+    export_stl(bracket, str(out / "wandhalterung.stl"))
+    export_stl(steckdorn, str(out / "dorn_einschub_steckdorn.stl"))
+    export_stl(haken, str(out / "dorn_einschub_haltehaken.stl"))
+    export_stl(druckbett_layout, str(out / "beide_druckbett.stl"))
+    print(f"  ✓ STL: {out / 'wandhalterung.stl'}")
+    print(f"  ✓ STL: {out / 'dorn_einschub_steckdorn.stl'}")
+    print(f"  ✓ STL: {out / 'dorn_einschub_haltehaken.stl'}")
+    print(f"  ✓ STL: {out / 'beide_druckbett.stl'}")
+
     print("\n" + "=" * 60)
-    print("Alle STEP-Dateien erfolgreich für Autodesk Fusion exportiert!")
+    print("Alle STEP- und STL-Dateien erfolgreich generiert!")
     print("=" * 60)
 
 
