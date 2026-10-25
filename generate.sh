@@ -89,4 +89,11 @@ openscad -D 'ansicht="wandhalterung"' -o "${OUTPUT_DIR}/preview_wandhalterung.pn
     --colorscheme="$COLOR_SCHEME"
 echo -e "${GREEN}✓ ${OUTPUT_DIR}/preview_wandhalterung.png${NC}"
 
-echo -e "\n${BOLD}${GREEN}✔ Alle STLs und Renderings erfolgreich generiert!${NC}"
+# 8. STEP: build123d Export für CAD / Autodesk Fusion
+if python3 -c "import build123d" &>/dev/null; then
+    echo -e "\n${YELLOW}▶ Exportiere STEP-Dateien via build123d für Autodesk Fusion...${NC}"
+    python3 schlauch_halteplatte_dorn.py
+    echo -e "${GREEN}✓ STEP-Dateien erfolgreich exportiert.${NC}"
+fi
+
+echo -e "\n${BOLD}${GREEN}✔ Alle STLs, STEP-Dateien und Renderings erfolgreich generiert!${NC}"
