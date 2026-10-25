@@ -12,6 +12,7 @@ Optimiert für schnelles AGENTIC CODING:
 """
 
 import argparse
+import copy
 import json
 import math
 import shutil
@@ -20,7 +21,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 
 from PIL import Image, ImageDraw
 from build123d import *
@@ -41,15 +42,16 @@ class Config:
     halter_tiefe: float = 12.0            # Gesamttiefe / Dicke (mm)
     boden_dicke: float = 4.0              # Wandstärke hinter Führungsnut (mm)
     halter_radius: float = 4.0            # Eckenverrundung (mm)
+    unten_rand: float = 4.0               # Wandstärke unterhalb des U-Kanals (mm)
 
     # Schwalbenschwanz-Führung
     nut_breite_hinten: float = 36.0       # Nutbreite am Nutgrund (mm)
     nut_breite_vorn: float = 30.0         # Nutbreite an der Oberfläche (mm)
     spiel: float = 0.35                   # Gleitspiel zwischen Nut und Einschub (mm)
 
-    # Schraubenlöcher (2 Stück im Halter)
-    schraube_d: float = 4.2               # Schaftdurchmesser (mm)
-    senkkopf_d: float = 8.2               # Senkkopfdurchmesser (mm)
+    # Schraubenlöcher (2 Stück im Halter) M4 Senkkopf
+    schraube_d: float = 4.4               # Schaftdurchmesser (mm)
+    senkkopf_d: float = 8.7               # Senkkopfdurchmesser (mm)
     senkkopf_winkel: float = 90.0         # Senkwinkel in Grad
     schraube_oben_y: float = 16.0         # Y-Position Schraube oben (mm)
     schraube_unten_y: float = -14.0       # Y-Position Schraube unten (mm)
@@ -57,9 +59,10 @@ class Config:
     # Dorn / Haken (Baseline)
     dorn_d: float = 16.0                  # Außendurchmesser des Dorns (mm)
     dorn_laenge: float = 50.0             # Nutzlänge des Dorns (mm)
-    dorn_neigung: float = 5.0             # Neigungswinkel nach oben in Grad
+    dorn_neigung: float = -5.0             # Neigungswinkel nach oben in Grad
     basis_fase: float = 5.0               # Breite/Höhe des Übergangskonus (mm)
     innenbohrung: float = 0.0             # Innendurchmesser Bohrung (0 = massiv) (mm)
+    dorn_y_faktor: float = 0.42           # Relative Y-Position des Dorns auf dem Schlitten
 
     # Haltehaken-Details
     kragen_d: float = 24.0                # Durchmesser des Abschlusskragens (mm)
@@ -72,60 +75,165 @@ class Config:
     barb_laenge: float = 7.0              # Länge Halterippe (mm)
     spitzen_anfasung: float = 4.0         # Fasenlänge Einführspitze (mm)
 
+    # ----------------------------------------------------------------
+    # Abgeleitete Geometrie-Parameter (Parameterize Best Practice)
+    # ----------------------------------------------------------------
+    @property
+    def nut_tiefe(self) -> float:
+        """Tiefe der Schwalbenschwanznut bzw. Dicke des Gleitschlittens."""
+        return self.halter_tiefe - self.boden_dicke
+
+    @property
+    def y_top(self) -> float:
+        """Obere Y-Kante von Wandhalterung und Schlitten."""
+        return self.halter_hoehe / 2.0
+
+    @property
+    def y_u_mitte(self) -> float:
+        """Y-Koordinate des unteren Halbkreis-Zentrums der U-Führung."""
+        return -self.halter_hoehe / 2.0 + self.nut_breite_hinten / 2.0 + self.unten_rand
+
+    @property
+    def feder_breite_hinten(self) -> float:
+        """Breite der Schwalbenschwanzfeder hinten (abzüglich beidseitigem Spiel)."""
+        return self.nut_breite_hinten - 2.0 * self.spiel
+
+    @property
+    def feder_breite_vorn(self) -> float:
+        """Breite der Schwalbenschwanzfeder vorn (abzüglich beidseitigem Spiel)."""
+        return self.nut_breite_vorn - 2.0 * self.spiel
+
+    @property
+    def y_dorn(self) -> float:
+        """Y-Position der Dorn-Mittelachse auf dem Schlitten."""
+        return self.y_u_mitte + (self.y_top - self.y_u_mitte) * self.dorn_y_faktor
+
+    @property
+    def eff_overhang_winkel(self) -> float:
+        """Effektiver FDM-Überhangwinkel gegen die Vertikale (Grad)."""
+        return self.kragen_fase_winkel - self.dorn_neigung
+
+
+# ====================================================================
+# GEMEINSAME 2D-SKIZZEN-HELFER (2D BEFORE 3D)
+# ====================================================================
+
+def _draw_dovetail_u_profile(width: float, y_center: float, y_top: float):
+    """
+    Zeichnet das 2D-U-Profil (Halbkreis unten + gerader Schacht bis y_top)
+    im lokalen Koordinatensystem (Plane.XY) des aktiven BuildSketch-Kontexts.
+    """
+    with Locations((0, y_center)):
+        Circle(radius=width / 2.0)
+        Rectangle(width, y_top - y_center, align=(Align.CENTER, Align.MIN))
+
+
+def _build_stem_revolve_points(cfg: Config, dorn_art: str) -> List[Tuple[float, float]]:
+    """
+    Erzeugt die 2D-Halbprofil-Punkte (Radius X, Achsenhöhe Y) für die
+    Rotationsgeometrie (revolve) des Dorns ab Höhe cfg.basis_fase.
+    """
+    dorn_r = cfg.dorn_d / 2.0
+
+    if dorn_art == "haltehaken":
+        kragen_r = cfg.kragen_d / 2.0
+        kragen_delta_r = max(0.5, kragen_r - dorn_r)
+        kragen_fase_h = kragen_delta_r / math.tan(math.radians(cfg.kragen_fase_winkel))
+
+        z_kragen = cfg.dorn_laenge - cfg.kragen_dicke
+        z_cone_start = max(cfg.basis_fase + 1.0, z_kragen - kragen_fase_h)
+        # Übermaß nach oben, damit der anschließende Horizontalschnitt (split)
+        # eine vollständig ebene Deckfläche erzeugt
+        z_top_over = z_kragen + cfg.kragen_dicke + 4.0
+
+        return [
+            (0.0, cfg.basis_fase),
+            (dorn_r, cfg.basis_fase),
+            (dorn_r, z_cone_start),
+            (kragen_r, z_kragen),
+            (kragen_r, z_top_over),
+            (0.0, z_top_over),
+        ]
+
+    # Modus: "steckdorn" (optional mit Haltewülsten / Barbs im 2D-Rotationsprofil)
+    spitze_h = min(cfg.spitzen_anfasung, cfg.dorn_laenge * 0.2)
+    tip_start = max(cfg.basis_fase + 1.0, cfg.dorn_laenge - spitze_h)
+    tip_r = max(2.0, dorn_r * 0.65)
+    z_top_over = cfg.dorn_laenge + 4.0
+
+    pts: List[Tuple[float, float]] = [
+        (0.0, cfg.basis_fase),
+        (dorn_r, cfg.basis_fase),
+    ]
+
+    nutz_bereich = tip_start - cfg.basis_fase - 6.0
+    if cfg.barb_anzahl > 0 and nutz_bereich >= cfg.barb_laenge:
+        start_z = cfg.basis_fase + 3.0
+        schritt = (
+            (nutz_bereich - cfg.barb_laenge) / (cfg.barb_anzahl - 1)
+            if cfg.barb_anzahl > 1
+            else 0.0
+        )
+        kanten_l = cfg.barb_laenge * 0.25
+        for i in range(cfg.barb_anzahl):
+            z_pos = (
+                start_z + i * schritt
+                if cfg.barb_anzahl > 1
+                else start_z + (nutz_bereich - cfg.barb_laenge) / 2.0
+            )
+            pts.extend([
+                (dorn_r, z_pos),
+                (dorn_r + cfg.barb_hoehe, z_pos + kanten_l),
+                (dorn_r, z_pos + cfg.barb_laenge),
+            ])
+
+    pts.extend([
+        (dorn_r, tip_start),
+        (tip_r, z_top_over),
+        (0.0, z_top_over),
+    ])
+    return pts
+
 
 # ====================================================================
 # MODELLIERUNG: WANDHALTERUNG (BEFESTIGUNG)
 # ====================================================================
 
-def create_wandhalterung(cfg: Config) -> Solid:
+def create_wandhalterung(cfg: Config) -> Part:
     """Erstellt die Wandhalterung mit Schwalbenschwanzführung und 2 Senkbohrungen."""
-    nut_tiefe = cfg.halter_tiefe - cfg.boden_dicke
-    y_u_mitte = -cfg.halter_hoehe / 2.0 + cfg.nut_breite_hinten / 2.0 + 4.0
-    y_top = cfg.halter_hoehe / 2.0
-    cutter_len = (y_top + 10.0) - y_u_mitte
-
-    # 1. Grundkörper (abgerundetes Rechteck)
-    p_base = RectangleRounded(cfg.halter_breite, cfg.halter_hoehe, cfg.halter_radius)
-    bracket_body = extrude(p_base, amount=cfg.halter_tiefe)
-
-    # 2. Schwalbenschwanz-Nut (Loft von breiter Rückseite zu schmaler Vorderseite)
-    def nut_profile(w: float):
-        c = Pos(0, y_u_mitte) * Circle(radius=w / 2.0)
-        r = Pos(0, y_u_mitte + cutter_len / 2.0) * Rectangle(w, cutter_len)
-        return c + r
-
-    n_back = Pos(0, 0, cfg.boden_dicke) * nut_profile(cfg.nut_breite_hinten)
-    n_front = Pos(0, 0, cfg.halter_tiefe + 0.05) * nut_profile(cfg.nut_breite_vorn)
-    nut_cutter = loft([n_back, n_front])
-
-    bracket = bracket_body - nut_cutter
-
-    # 3. Senkkopf-Bohrungen
     senk_r = cfg.senkkopf_d / 2.0
     bohr_r = cfg.schraube_d / 2.0
     senk_h_theor = (senk_r - bohr_r) / math.tan(math.radians(cfg.senkkopf_winkel / 2.0))
     senk_tiefe_eff = min(senk_h_theor, cfg.boden_dicke * 0.75)
+    eff_senk_winkel = 2.0 * math.degrees(math.atan((senk_r - bohr_r) / senk_tiefe_eff))
 
-    def screw_cutter(y_pos: float):
-        through = Pos(0, y_pos, -1.0) * Cylinder(
-            radius=bohr_r,
-            height=cfg.boden_dicke + 2.0,
-            align=(Align.CENTER, Align.CENTER, Align.MIN)
-        )
-        cone = Pos(0, y_pos, cfg.boden_dicke - senk_tiefe_eff) * Cone(
-            bottom_radius=bohr_r,
-            top_radius=senk_r,
-            height=senk_tiefe_eff,
-            align=(Align.CENTER, Align.CENTER, Align.MIN)
-        )
-        clearance = Pos(0, y_pos, cfg.boden_dicke) * Cylinder(
-            radius=senk_r,
-            height=cfg.halter_tiefe + 2.0,
-            align=(Align.CENTER, Align.CENTER, Align.MIN)
-        )
-        return through + cone + clearance
+    # Überstand der Nut nach oben für sauberen Durchbruch auch bei großen Eckradien
+    nut_top_y = cfg.y_top + cfg.halter_radius
 
-    bracket = bracket - screw_cutter(cfg.schraube_oben_y) - screw_cutter(cfg.schraube_unten_y)
+    with BuildPart() as bracket_bp:
+        # 1. Grundkörper (2D-Skizze mit Eckenverrundung vor 3D-Extrusion)
+        with BuildSketch(Plane.XY):
+            RectangleRounded(cfg.halter_breite, cfg.halter_hoehe, cfg.halter_radius)
+        extrude(amount=cfg.halter_tiefe)
+
+        # 2. Schwalbenschwanz-Nut (Loft von breiter Rückseite zur schmalen Vorderseite)
+        top_face: Face = bracket_bp.faces().sort_by(Axis.Z)[-1]
+        with BuildSketch(Plane.XY.offset(cfg.boden_dicke)):
+            _draw_dovetail_u_profile(cfg.nut_breite_hinten, cfg.y_u_mitte, nut_top_y)
+        with BuildSketch(top_face):
+            _draw_dovetail_u_profile(cfg.nut_breite_vorn, cfg.y_u_mitte, nut_top_y)
+        loft(mode=Mode.SUBTRACT)
+
+        # 3. Senkkopf-Bohrungen im Nutgrund (inkl. Freistich durch die Nut nach +Z)
+        with Locations(Plane.XY.offset(cfg.boden_dicke)):
+            with Locations((0, cfg.schraube_oben_y), (0, cfg.schraube_unten_y)):
+                CounterSinkHole(
+                    radius=bohr_r,
+                    counter_sink_radius=senk_r,
+                    counter_sink_angle=eff_senk_winkel,
+                )
+
+    bracket = bracket_bp.part
     bracket.label = "Wandhalterung"
     return bracket
 
@@ -134,7 +242,7 @@ def create_wandhalterung(cfg: Config) -> Solid:
 # MODELLIERUNG: HAKEN / DORN-EINSCHUB
 # ====================================================================
 
-def create_dorn_einschub(cfg: Config, dorn_art: str = None) -> Solid:
+def create_dorn_einschub(cfg: Config, dorn_art: str = None) -> Part:
     """
     Erstellt den abnehmbaren Gleitschlitten mit Haltehaken oder Steckdorn.
     Baseline: "haltehaken" (mit 50°-Stützkragen und ebener horizontaler Stirnfläche).
@@ -142,115 +250,62 @@ def create_dorn_einschub(cfg: Config, dorn_art: str = None) -> Solid:
     if dorn_art is None:
         dorn_art = cfg.dorn_art
 
-    nut_tiefe = cfg.halter_tiefe - cfg.boden_dicke
-    y_u_mitte = -cfg.halter_hoehe / 2.0 + cfg.nut_breite_hinten / 2.0 + 4.0
-    y_top = cfg.halter_hoehe / 2.0
-    cutter_len = (y_top + 10.0) - y_u_mitte
-
-    b_h_m = cfg.nut_breite_hinten - 2.0 * cfg.spiel
-    b_v_m = cfg.nut_breite_vorn - 2.0 * cfg.spiel
-
-    # 1. Schlittenkörper
-    def slider_profile(w: float):
-        c = Pos(0, y_u_mitte) * Circle(radius=w / 2.0)
-        r = Pos(0, y_u_mitte + cutter_len / 2.0) * Rectangle(w, cutter_len)
-        return c + r
-
-    s_back = Pos(0, 0, 0) * slider_profile(b_h_m)
-    s_front = Pos(0, 0, nut_tiefe) * slider_profile(b_v_m)
-    raw_slider = loft([s_back, s_front])
-
-    # Oben plan auf y_top abschneiden
-    slider = raw_slider - Pos(0, y_top + 50.0, nut_tiefe / 2.0) * Box(
-        cfg.halter_breite * 3.0, 100.0, nut_tiefe * 2.0
-    )
-
-    # 2. Dorn aufbauen
     dorn_r = cfg.dorn_d / 2.0
-    y_dorn = y_u_mitte + (y_top - y_u_mitte) * 0.42
 
-    # Gekippte Arbeitsebene (5° nach oben geneigt)
-    tilted_plane = Plane(Location((0, y_dorn, nut_tiefe), (cfg.dorn_neigung, 0, 0)))
+    # Gekippte Arbeitsebene (5° nach oben geneigt) am Fußpunkt des Dorns
+    tilted_plane = Plane(Location((0, cfg.y_dorn, cfg.nut_tiefe), (cfg.dorn_neigung, 0, 0)))
 
-    # 2a. Basisübergang: Loft von horizontalem Kreis auf Z=nut_tiefe zur geneigten Ebene
-    disk1 = Pos(0, y_dorn, nut_tiefe) * Circle(radius=dorn_r + cfg.basis_fase)
-    disk2 = tilted_plane.offset(cfg.basis_fase) * Circle(radius=dorn_r)
-    base_trans = loft([disk1, disk2])
+    # Längsschnitt-Ebene für 2D-Rotationsprofil (lokales +X = Radius, lokales +Y = Dornachse)
+    stem_profile_plane = Plane(
+        origin=tilted_plane.origin,
+        x_dir=tilted_plane.x_dir,
+        z_dir=-tilted_plane.y_dir,
+    )
+    stem_axis = Axis(tilted_plane.origin, tilted_plane.z_dir)
 
+    # Z-Höhe für den planparallelen Deckflächen-Schnitt (Normal = (0, 0, 1))
+    rad = math.radians(cfg.dorn_neigung)
+    z_center_top = cfg.nut_tiefe + cfg.dorn_laenge * math.cos(rad)
     if dorn_art == "haltehaken":
-        kragen_r = cfg.kragen_d / 2.0
-        kragen_delta_r = max(0.5, kragen_r - dorn_r)
-        kragen_fase_h = kragen_delta_r / math.tan(math.radians(cfg.kragen_fase_winkel))
-
-        z_kragen = cfg.dorn_laenge - cfg.kragen_dicke
-        z_cone_start = z_kragen - kragen_fase_h
-
-        # Schaft
-        shaft = tilted_plane.offset(cfg.basis_fase) * Cylinder(
-            radius=dorn_r,
-            height=max(1.0, z_cone_start - cfg.basis_fase),
-            align=(Align.CENTER, Align.CENTER, Align.MIN)
-        )
-
-        # 50°-Stützkonus unterhalb des Kragens (supportfrei für FDM-Druck)
-        support_cone = tilted_plane.offset(z_cone_start) * Cone(
-            bottom_radius=dorn_r,
-            top_radius=kragen_r,
-            height=kragen_fase_h,
-            align=(Align.CENTER, Align.CENTER, Align.MIN)
-        )
-
-        # Zylindrischer Kragen
-        collar = tilted_plane.offset(z_kragen) * Cylinder(
-            radius=kragen_r,
-            height=cfg.kragen_dicke + 4.0,
-            align=(Align.CENTER, Align.CENTER, Align.MIN)
-        )
-
-        dorn_solid = base_trans + shaft + support_cone + collar
-
-        # Deckfläche vollkommen planparallel zum Druckbett kappen (Z = const, Normal=(0,0,1))
-        rad = math.radians(cfg.dorn_neigung)
-        z_center_top = nut_tiefe + cfg.dorn_laenge * math.cos(rad)
-        z_dorn_ebene = z_center_top - kragen_r * math.sin(rad)
-        cutter = Pos(0, 0, z_dorn_ebene + 50.0) * Box(200.0, 200.0, 100.0)
-        dorn_leveled = dorn_solid - cutter
-
+        z_dorn_ebene = z_center_top - (cfg.kragen_d / 2.0) * math.sin(rad)
     else:
-        # Steckdorn
-        spitze_h = min(cfg.spitzen_anfasung, cfg.dorn_laenge * 0.2)
-        shaft = tilted_plane.offset(cfg.basis_fase) * Cylinder(
-            radius=dorn_r,
-            height=cfg.dorn_laenge - cfg.basis_fase - spitze_h,
-            align=(Align.CENTER, Align.CENTER, Align.MIN)
-        )
-        tip_start = cfg.dorn_laenge - spitze_h
-        tip_cone = tilted_plane.offset(tip_start) * Cone(
-            bottom_radius=dorn_r,
-            top_radius=max(2.0, dorn_r * 0.65),
-            height=spitze_h,
-            align=(Align.CENTER, Align.CENTER, Align.MIN)
-        )
-        dorn_solid = base_trans + shaft + tip_cone
+        z_dorn_ebene = z_center_top
 
-        rad = math.radians(cfg.dorn_neigung)
-        z_dorn_ebene = nut_tiefe + cfg.dorn_laenge * math.cos(rad)
-        cutter = Pos(0, 0, z_dorn_ebene + 50.0) * Box(200.0, 200.0, 100.0)
-        dorn_leveled = dorn_solid - cutter
+    profile_pts = _build_stem_revolve_points(cfg, dorn_art)
 
-    # 3. Schlitten und Dorn verbinden
-    einschub = slider.fuse(dorn_leveled)
+    with BuildPart() as einschub_bp:
+        # 1. Schlittenkörper (direkt in 2D auf cfg.y_top begrenzt, kein 3D-Trim-Box-Schnitt nötig)
+        with BuildSketch(Plane.XY):
+            _draw_dovetail_u_profile(cfg.feder_breite_hinten, cfg.y_u_mitte, cfg.y_top)
+        with BuildSketch(Plane.XY.offset(cfg.nut_tiefe)):
+            _draw_dovetail_u_profile(cfg.feder_breite_vorn, cfg.y_u_mitte, cfg.y_top)
+        loft()
 
-    # 4. Optionale Innenbohrung
-    if cfg.innenbohrung > 0.0:
-        bore_r = cfg.innenbohrung / 2.0
-        bore = tilted_plane.offset(-nut_tiefe - 2.0) * Cylinder(
-            radius=bore_r,
-            height=cfg.dorn_laenge + nut_tiefe + 10.0,
-            align=(Align.CENTER, Align.CENTER, Align.MIN)
-        )
-        einschub = einschub - bore
+        # 2. Basisübergang: Loft von horizontalem Kreis auf Schlitten-Oberseite zur geneigten Dorn-Ebene
+        with BuildSketch(Plane.XY.offset(cfg.nut_tiefe)):
+            with Locations((0, cfg.y_dorn)):
+                Circle(radius=dorn_r + cfg.basis_fase)
+        with BuildSketch(tilted_plane.offset(cfg.basis_fase)):
+            Circle(radius=dorn_r)
+        loft()
 
+        # 3. Dorn + Stützkonus + Kragen als 2D-Profilskizze mit 360°-Rotation (revolve)
+        #    Hinweis: BuildLine nutzt bewusst die lokale Standardebene Plane.XY innerhalb von BuildSketch
+        with BuildSketch(stem_profile_plane):
+            with BuildLine():
+                Polyline(*profile_pts, close=True)
+            make_face()
+        revolve(axis=stem_axis)
+
+        # 4. Deckfläche vollkommen planparallel zum Druckbett kappen (Z = const, Normal = (0, 0, 1))
+        split(bisect_by=Plane.XY.offset(z_dorn_ebene), keep=Keep.BOTTOM)
+
+        # 5. Optionale durchgehende Innenbohrung entlang der geneigten Dornachse
+        if cfg.innenbohrung > 0.0:
+            with Locations(tilted_plane):
+                Hole(radius=cfg.innenbohrung / 2.0)
+
+    einschub = einschub_bp.part
     label_suffix = "Haltehaken" if dorn_art == "haltehaken" else "Steckdorn"
     einschub.label = f"DornEinschub_{label_suffix}"
     return einschub
@@ -260,22 +315,28 @@ def create_dorn_einschub(cfg: Config, dorn_art: str = None) -> Solid:
 # SANITY-CHECKS & GEOMETRIE-METRIKEN (FÜR AGENTIC CODING)
 # ====================================================================
 
-def analyze_part_geometry(name: str, solid: Solid) -> Dict[str, Any]:
-    """Berechnet maschinenlesbare Geometriedaten für Sanity-Checks."""
+def analyze_part_geometry(name: str, solid: Shape) -> Dict[str, Any]:
+    """Berechnet maschinenlesbare Geometriedaten für Sanity-Checks via Topologie-Selektoren."""
     bbox = solid.bounding_box()
     vol = solid.volume
 
-    # Überprüfe Druckbett-Auflage (Z_min nahe 0.0)
-    bed_flat = abs(bbox.min.Z) < 1e-3
+    # Überprüfe Druckbett-Auflage (unterste Fläche bei Z_min == 0.0 und planar)
+    bottom_face: Face = solid.faces().sort_by(Axis.Z)[0]
+    bed_flat = (
+        abs(bbox.min.Z) < 1e-3
+        and bottom_face.geom_type == GeomType.PLANE
+        and abs(bottom_face.normal_at().Z + 1.0) < 1e-2
+    )
 
-    # Überprüfe oberste Fläche (Planarität & Normalenvektor Z=(0,0,1))
-    top_faces = [f for f in solid.faces() if abs(f.center().Z - bbox.max.Z) < 0.1]
-    top_planar = False
-    top_normal = None
-    if top_faces:
-        norm = top_faces[0].normal_at(top_faces[0].center())
-        top_normal = [round(norm.X, 3), round(norm.Y, 3), round(norm.Z, 3)]
-        top_planar = abs(norm.Z - 1.0) < 1e-2
+    # Überprüfe oberste Fläche via Topologie-Selektor (Planarität & Normalenvektor Z=(0,0,1))
+    top_face: Face = solid.faces().sort_by(Axis.Z)[-1]
+    norm = top_face.normal_at()
+    top_normal = [
+        round(norm.X, 3) + 0.0,
+        round(norm.Y, 3) + 0.0,
+        round(norm.Z, 3) + 0.0,
+    ]
+    top_planar = top_face.geom_type == GeomType.PLANE and abs(norm.Z - 1.0) < 1e-2
 
     return {
         "name": name,
@@ -283,7 +344,7 @@ def analyze_part_geometry(name: str, solid: Solid) -> Dict[str, Any]:
             "size_x": round(bbox.size.X, 2),
             "size_y": round(bbox.size.Y, 2),
             "size_z": round(bbox.size.Z, 2),
-            "min_z": round(bbox.min.Z, 4),
+            "min_z": round(bbox.min.Z, 4) + 0.0,
             "max_z": round(bbox.max.Z, 2),
         },
         "volume_mm3": round(vol, 1),
@@ -312,9 +373,9 @@ def print_metrics_report(metrics_list: List[Dict[str, Any]], cfg: Config):
         print()
 
     # Passungs- und Druckbarkeitsanalyse
-    eff_overhang = cfg.kragen_fase_winkel - cfg.dorn_neigung
+    eff_overhang = cfg.eff_overhang_winkel
     print("[PASSUNG & FDM-DRUCKBARKEIT]")
-    print(f"  • Schwalbenschwanz-Spiel: {cfg.spiel:.2f} mm (Nut: {cfg.nut_breite_hinten} mm, Feder: {cfg.nut_breite_hinten - 2.0*cfg.spiel:.2f} mm) -> ✔ OK")
+    print(f"  • Schwalbenschwanz-Spiel: {cfg.spiel:.2f} mm (Nut: {cfg.nut_breite_hinten} mm, Feder: {cfg.feder_breite_hinten:.2f} mm) -> ✔ OK")
     print(f"  • Haltehaken Neigung    : {cfg.dorn_neigung:.1f}° nach oben")
     print(f"  • Kragen Stützfase      : {cfg.kragen_fase_winkel:.1f}° - Neigung {cfg.dorn_neigung:.1f}° = {eff_overhang:.1f}° gegen Vertikale -> ✔ Supportfrei (<= 45°)")
     print("=" * 65)
@@ -525,7 +586,8 @@ def main():
     # 3. Baugruppe / Montage
     if args.part in ("all", "baugruppe") and bracket and haken:
         print("\n[3/3] Erzeuge Zusammenbau & Montageansichten...")
-        haken_mated = Pos(0, 0, cfg.boden_dicke) * haken
+        # Flache Kopie (Shallow Copy) teilt die zugrundeliegende OCCT TopoDS_TShape
+        haken_mated = copy.copy(haken).move(Location((0, 0, cfg.boden_dicke)))
 
         if not args.fast:
             assembly = Compound([bracket, haken_mated], label="Baugruppe_Haltehaken")
