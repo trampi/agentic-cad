@@ -1,0 +1,70 @@
+{
+  "config": {
+    "dorn_art": "haltehaken",
+    "halter_breite": 50.0,
+    "halter_hoehe": 70.0,
+    "halter_tiefe": 12.0,
+    "boden_dicke": 4.0,
+    "halter_radius": 4.0,
+    "unten_rand": 4.0,
+    "nut_breite_hinten": 36.0,
+    "nut_breite_vorn": 30.0,
+    "spiel": 0.35,
+    "schraube_d": 4.4,
+    "senkkopf_d": 8.7,
+    "senkkopf_winkel": 90.0,
+    "schraube_oben_y": 16.0,
+    "schraube_unten_y": -14.0,
+    "dorn_d": 16.0,
+    "dorn_laenge": 50.0,
+    "dorn_neigung": -5.0,
+    "basis_fase": 5.0,
+    "innenbohrung": 0.0,
+    "dorn_y_faktor": 0.42,
+    "kragen_d": 24.0,
+    "kragen_dicke": 4.0,
+    "kragen_fase_winkel": 50.0,
+    "barb_anzahl": 3,
+    "barb_hoehe": 1.2,
+    "barb_laenge": 7.0,
+    "spitzen_anfasung": 4.0
+  },
+  "parts": [
+    {
+      "name": "wandhalterung",
+      "bbox": {
+        "size_x": 50.0,
+        "size_y": 70.0,
+        "size_z": 12.0,
+        "min_z": 0.0,
+        "max_z": 12.0
+      },
+      "volume_mm3": 25526.2,
+      "bed_flat": true,
+      "top_planar": true,
+      "top_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "haltehaken",
+      "bbox": {
+        "size_x": 35.3,
+        "size_y": 65.65,
+        "size_z": 58.86,
+        "min_z": 0.0,
+        "max_z": 58.86
+      },
+      "volume_mm3": 28372.0,
+      "bed_flat": true,
+      "top_planar": true,
+      "top_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ]
+}
