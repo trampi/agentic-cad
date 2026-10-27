@@ -1,12 +1,6 @@
 # Generierte Build- und Preview-Ordner
-build/
-preview/
-
-# Generierte 3D-Druck- und CAD-Artefakte
-*.stl
-*.step
-*.stp
-*.png
+/build/
+/preview/
 
 # Python Cache
 __pycache__/
