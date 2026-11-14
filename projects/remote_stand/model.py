@@ -254,7 +254,6 @@ def create_remote_stand(cfg: Config) -> Part:
     """Create the single-piece sculptural 4-slot staggered couch-table remote stand."""
     geom = _compute_cradle_geometry(cfg)
     profile_pts = geom["profile_pts"]
-    crest_spans = geom["crest_spans"]
     backrest_tops = geom["backrest_tops"]
     y_total = geom["y_total"]
     z_max = geom["z_max"]
@@ -278,7 +277,7 @@ def create_remote_stand(cfg: Config) -> Part:
         extrude(amount=max_w / 2.0, both=True)
     master_wave = wave_bp.part
 
-    # 2. Slice master_wave into 4 centered staggered tiers along the 30-deg transitions
+    # 2. Slice master_wave into 4 centered staggered tiers along exact 30-deg transitions
     tier_parts: List[Part] = []
     overlap = 1.0
     for i, tier_w in enumerate(tier_widths):
@@ -288,15 +287,16 @@ def create_remote_stand(cfg: Config) -> Part:
             y_rect_front = 0.0
         else:
             y_bt_prev, z_bt_prev = backrest_tops[i - 1]
-            y_fb_bot = y_bt_prev - z_bt_prev * tan_t
+            # Evaluate slice bounds at exact Z=-1.0 and Z=z_max+2.0 so slice stays coplanar with backrest
+            y_fb_bot = y_bt_prev - (z_bt_prev + 1.0) * tan_t
             y_fb_top = y_bt_prev + (z_max + 2.0 - z_bt_prev) * tan_t
-            y_rect_front = y_fb_bot
+            y_rect_front = y_bt_prev - z_bt_prev * tan_t
 
         if i < 3:
             y_bt_curr, z_bt_curr = backrest_tops[i]
-            y_bb_bot = y_bt_curr + overlap - z_bt_curr * tan_t
+            y_bb_bot = y_bt_curr + overlap - (z_bt_curr + 1.0) * tan_t
             y_bb_top = y_bt_curr + overlap + (z_max + 2.0 - z_bt_curr) * tan_t
-            y_rect_back = max(y_bb_bot, y_bt_curr + overlap) + cfg.corner_radius + 2.0
+            y_rect_back = max(y_bt_curr + overlap - z_bt_curr * tan_t, y_bt_curr + overlap) + cfg.corner_radius + 2.0
         else:
             y_bb_bot = y_total + 5.0
             y_bb_top = y_total + 5.0
@@ -307,7 +307,6 @@ def create_remote_stand(cfg: Config) -> Part:
 
         with BuildPart() as tier_bp:
             insert(master_wave)
-            # 30-degree angled tier slice in (Y, Z)
             slice_pts = [
                 (y_fb_bot, -1.0),
                 (y_bb_bot, -1.0),
@@ -320,7 +319,6 @@ def create_remote_stand(cfg: Config) -> Part:
                 make_face()
             extrude(amount=max_w / 2.0 + 2.0, both=True, mode=Mode.INTERSECT)
 
-            # Tier X width & rounded XY planform corners
             with BuildSketch(Plane.XY):
                 with Locations((0.0, (y_rect_front + y_rect_back) / 2.0)):
                     if r_eff > 0.0:
@@ -343,7 +341,7 @@ def create_remote_stand(cfg: Config) -> Part:
         # 4. Guarantee a clean horizontal planar top crest (Normal = (0, 0, 1))
         split(bisect_by=Plane.XY.offset(z_max - 0.35), keep=Keep.BOTTOM)
 
-    stand = stand_bp.part
+    stand = stand_bp.part.clean()
     stand.label = "RemoteStand"
     return stand
 

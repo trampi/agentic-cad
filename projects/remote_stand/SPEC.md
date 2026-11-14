@@ -13,7 +13,7 @@ A compact, sculptural 4-slot stepped couch-table stand for 4 TV/media remotes ly
 3. **Slot 3 (3rd)**: LG TV remote (~171 × 45 × 30 mm) $\rightarrow$ `35.0 mm` cradle slot, **`128.0 mm` tier width** (`21.5 mm` overhang per end)
 4. **Slot 4 (Back)**: Bose 3-2-1 series remote (~230 × 65 × 31 mm) $\rightarrow$ `36.0 mm` cradle slot, **`172.0 mm` tier width** (`29.0 mm` overhang per end)
 
-Centered, staggered open-ended cradles (~75% of each remote's width) widen symmetrically from front to back along the $30^\circ$ tier transitions, giving every remote proportional lateral support while keeping both ends exposed for effortless pickup and minimizing couch-table footprint. A stepped, twin-rail central finger-pickup channel maintains uniform **`16.0 mm` side rails** across every staggered tier (`60.0 / 73.0 / 96.0 / 140.0 mm` wide from Tier 1 to Tier 4, widening smoothly behind each divider crest with rounded corners and a thin continuous **flat `2.4 mm` horizontal base floor**) to cut filament weight while keeping the middle of every remote open for effortless two-finger pinch pickup.
+Centered, staggered open-ended cradles (~75% of each remote's width) widen symmetrically from front to back along exact $30^\circ$ tier transitions (`ShapeUpgrade_UnifySameDomain` via `.clean()` unifying coplanar faces cleanly across steps), giving every remote proportional lateral support while keeping both ends exposed for effortless pickup and minimizing couch-table footprint. A stepped, twin-rail central finger-pickup channel maintains uniform **`16.0 mm` side rails** across every staggered tier (`60.0 / 73.0 / 96.0 / 140.0 mm` wide from Tier 1 to Tier 4, widening smoothly behind each divider crest with rounded corners over a thin continuous **flat `2.4 mm` horizontal base floor**) to cut filament weight while keeping the middle of every remote open for effortless two-finger pinch pickup.
 
 ---
 
@@ -89,7 +89,7 @@ All primary parameters are defined in `Config` inside `model.py`.
 2. **Support-Free FDM Overhangs**:
    - All cradle backrests lean at `tilt_angle = 30.0°` from vertical ($\le 45^\circ$ FDM support-free threshold).
    - Slot floors incline at $30^\circ$ above horizontal; the front outer nose leans at $30^\circ$ from vertical; the rear heel widens toward the print bed (zero overhang).
-   - The stepped twin-rail pickup channel keeps `16.0 mm` vertical-walled rails above a thin continuous flat horizontal floor (`cutout_floor_z = 2.4 mm`, parallel to the print bed) with smoothed XY step transitions (`8.0 mm`) and bottom cove fillets (`5.0 mm`), dramatically reducing bulk rear solid volume while printing completely support-free.
+   - The stepped twin-rail pickup channel keeps `16.0 mm` vertical-walled rails above a thin continuous flat horizontal floor (`cutout_floor_z = 2.4 mm`, parallel to the print bed) with smoothed XY step transitions (`8.0 mm`) and bottom cove fillets (`5.0 mm`), dramatically reducing bulk rear solid volume while printing completely support-free. Coplanar $30^\circ$ tier slice seams are eliminated by exact Z=-1.0 slice alignment and `.clean()`.
 3. **Planar Top Face**: The rear crest is bisected with `Plane.XY.offset(...)` so the highest layer finishes cleanly (`top_planar == true`, `top_normal == [0.0, 0.0, 1.0]`).
 4. **Autodesk Fusion STEP Exchange**: Clean analytical and extruded/filleted B-Rep geometry exported as STEP (`AP214`).
 5. **Recommended Slicer Pairing**: Print with **Lightning** infill (5–10%), **2 wall loops** (Arachne), and **3 top / 3 bottom layers** (~`0.6 mm`) alongside the stepped twin-rail + `2.4 mm` flat-floor geometry to minimize shell + infill consumption.
@@ -99,7 +99,7 @@ All primary parameters are defined in `Config` inside `model.py`.
 ## 5. Verification & Acceptance Criteria
 
 - **Automated Metrics (`build/metrics.json`)**:
-  - `remote_stand`: `size_x == 172.0 mm` (widest Bose tier), `min_z == 0.0`, `bed_flat == true`, `top_planar == true`, solid volume reduced from `459.04 cm³` to `282.61 cm³` (`surface_area = 856.13 cm²`) while preserving all slot/tier ergonomics and flat bottom base.
+  - `remote_stand`: `size_x == 172.0 mm` (widest Bose tier), `size_y == 200.51 mm`, `size_z == 59.22 mm`, `min_z == 0.0`, `bed_flat == true`, `top_planar == true`, solid volume `283.77 cm³` (`surface_area = 856.29 cm²`, reduced from `459.04 cm³` solid block) with seamless coplanar tier transitions (`Z = -1.0` aligned tier clip polygons + `.clean()`) preserving all original slot/tier dimensions and flat bottom base.
   - Staggered tier widths `(92.0, 105.0, 128.0, 172.0)`, uniform `rail_width = 16.0 mm` (`60 / 73 / 96 / 140 mm` stepped cutout), `cutout_floor_z = 2.4 mm`, slot widths `(20.0, 20.0, 35.0, 36.0)`, and tilt `30.0°` verified in terminal report and `config`.
 - **Visual Inspection (`preview/*_quad.png`)**:
   - `remote_stand_quad.png`: Clean symmetric stepped stagger widening front-to-back in Top & Front views with uniform `16.0 mm` left/right support rails per tier, smooth $30^\circ$ swept outer shoulders in Isometric & Side views, and a deep stepped central pickup canyon down to the thin continuous flat base floor.
