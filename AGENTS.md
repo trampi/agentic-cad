@@ -1,20 +1,21 @@
 # Agent Guidelines & Repository Documentation
 
-This repository contains a parametric CAD project engineered for 3D printing (FDM) and CAD exchange (Autodesk Fusion). The project is optimized for **Agentic Coding**, providing multi-angle visual feedback, automated geometric sanity checks, and high-speed iterative workflows.
+This repository hosts a generalized **Parametric CAD & 3D-Printing Harness** engineered for **FDM 3D printing** and **CAD exchange (Autodesk Fusion)** across multiple independent projects. The workflow is optimized for **Agentic Coding**, combining living specifications (`SPEC.md`), automated geometric sanity checks (`metrics.json`), multi-angle visual feedback (Quad-View collages), and high-speed iterative loops.
 
 ---
 
-## 1. Project Overview & Architecture
+## 1. Workspace Overview & Architecture
 
 - **Core CAD Kernel**: [`build123d`](https://github.com/gumyr/build123d) (Python wrapper around OpenCASCADE / OCCT).
 - **Headless Rasterizer**: OpenSCAD (used strictly as a headless CLI renderer via stdin CSG pipes to produce STL screenshots; no `.scad` model files are maintained).
-- **Core Artifacts**:
-  - `build/`: Production CAD files (`.step`, `.stl`) and machine-readable `metrics.json`.
-  - `preview/`: Multi-angle renderings and 4-in-1 Quad-View collages (`.png`).
-- **Assemblies & Parts**:
-  - **`wandhalterung`** (Wall Mount Bracket): Wall-mountable base with two recessed countersunk screw holes and an open U-channel dovetail slot.
-  - **`haltehaken`** (Hose Hook Slide - Default Baseline): Detachable dovetail slider with a 5° upward-tilted stem, a 50° FDM support cone, an end collar, and a planar horizontal top face.
-  - **`baugruppe_haltehaken`** (Assembly): Combined assembly in mated configuration for Autodesk Fusion.
+- **Multi-Project Structure**:
+  - `template/`: Canonical starter harness (`generate.sh`, `clean.sh`, `model.py`, `SPEC.md`, `README.md`) copied into every new project.
+  - `projects/<project_name>/`: Self-contained CAD projects, each owning its own scripts (`generate.sh`, `clean.sh`), `SPEC.md`, `README.md`, `model.py`, `build/`, and `preview/`.
+  - `.agents/skills/new-project/`: Workspace skill for bootstrapping a new CAD project from `template/` and user requirements.
+- **Concrete Reference Project (`projects/hose_hook/`)**:
+  - **`wall_mount`**: Wall-mountable bracket with two recessed M4 countersunk screw holes and an open-top U-channel dovetail slot.
+  - **`hose_hook`** (Default Baseline): Detachable dovetail slider with a $5^\circ$ upward-tilted stem, a $50^\circ$ FDM support cone, an end collar, and a planar horizontal top face.
+  - **`assembly`**: Combined assembly in mated configuration (`Assembly_HoseHook`) for Autodesk Fusion.
 
 ---
 
@@ -22,102 +23,122 @@ This repository contains a parametric CAD project engineered for 3D printing (FD
 
 ```text
 .
-├── AGENTS.md                    # This file (Agent instructions & operational guidelines)
-├── README.md                    # Project overview and quickstart documentation
-├── schlauch_halteplatte_dorn.py # Main parametric CAD model script & CLI generator
-├── generate.sh                  # Build orchestration script with fast iteration flags
-├── clean.sh                     # Workspace cleanup script (--keep-step, --keep-preview)
-├── .gitignore                   # Ignores build/, preview/, and temporary artifacts
-├── build/                       # Generated CAD artifacts (gitignored)
-│   ├── wandhalterung.step / .stl
-│   ├── haltehaken.step / .stl
-│   ├── baugruppe_haltehaken.step
-│   └── metrics.json             # Structured geometric evaluation metrics
-└── preview/                     # Generated preview images (gitignored)
-    ├── haltehaken_quad.png      # 4-in-1 composite (Iso, Top, Front, Side)
-    ├── wandhalterung_quad.png
-    ├── zusammenbau_quad.png
-    └── explosion.png            # Exploded view showing slide-in insertion path
+├── AGENTS.md                        # Workspace-wide agent instructions & CAD standards
+├── README.md                        # Repository overview, prerequisites & project index
+├── .gitignore                       # Ignores **/build/, **/preview/, and Python caches
+├── .agents/
+│   └── skills/
+│       └── new-project/
+│           └── SKILL.md             # Skill to scaffold & implement new CAD projects
+├── template/                        # Canonical per-project template
+│   ├── generate.sh                  # Generic build wrapper delegating to model.py
+│   ├── clean.sh                     # Artifact cleanup script (--keep-step, --keep-preview)
+│   ├── model.py                     # Starter build123d model + metrics + rendering harness
+│   ├── SPEC.md                      # Living specification template
+│   └── README.md                    # Project README template
+└── projects/
+    └── hose_hook/                   # Concrete reference project (Wall Mount + Hose Hook)
+        ├── generate.sh
+        ├── clean.sh
+        ├── model.py                 # Parametric wall_mount, hose_hook & assembly generator
+        ├── SPEC.md                  # Living specification synchronized with requirements
+        ├── README.md
+        ├── build/                   # Generated CAD artifacts (.step, .stl, metrics.json)
+        └── preview/                 # Generated renderings (*_quad.png, single views, exploded.png)
 ```
 
 ---
 
-## 3. The Agentic Iteration Loop
+## 3. The `SPEC.md`-Synchronized Agentic Iteration Loop
 
-When modifying or verifying geometries, follow this high-velocity loop:
+All CAD builds and iterations happen **inside a specific project directory** (`cd projects/<project_name>`). Every project maintains a `SPEC.md` file that acts as the **single source of truth** between user requirements and the Python CAD implementation.
+
+### Step 0: Synchronize `SPEC.md` with User Requirements
+Before editing `model.py`, review `projects/<project_name>/SPEC.md`:
+- Record any new or modified user requirements (functional goals, part breakdown, dimensions, mating clearances, fastener sizes, print orientation, or overhang limits).
+- Keep the Parametric Dimensions table, Derived Properties, and Verification Criteria in `SPEC.md` up to date so they accurately describe the intended geometry.
 
 ### Step 1: Rapid Iteration (`--fast`)
-Skip the computationally heavy STEP export during geometry experimentation:
+Skip the computationally heavy STEP export while experimenting with geometry:
 ```bash
-# Ultra-fast iteration on the hook only (STL + Quad-View in ~2-3 seconds):
-./generate.sh --fast --part haltehaken --views quad
+cd projects/hose_hook
 
-# Fast test on the wall bracket:
-./generate.sh --fast --part wandhalterung --views quad
+# Ultra-fast iteration on a single part (STL + Quad-View in ~2-3 seconds):
+./generate.sh --fast --part hose_hook --views quad
+
+# Fast test on another part or full assembly:
+./generate.sh --fast --part wall_mount --views quad
 ```
 
-### Step 2: Validate via Terminal Metrics & JSON
-Inspect the output report printed to stdout or read `build/metrics.json`:
-- **Bed Contact (`bed_flat`)**: Ensure `min_z == 0.0` for print-bed adhesion.
-- **Top Planarity (`top_planar`)**: Ensure the top surface normal is `[0.0, 0.0, 1.0]` (parallel to the bed) to avoid slicing terracing.
-- **Dovetail Fit**: Ensure dovetail clearance (`spiel`, default 0.35 mm) is preserved.
-- **Support-Free FDM**: Verify effective overhang $\le 45^\circ$ against vertical.
+### Step 2: Validate via Terminal Metrics & `metrics.json`
+Inspect the terminal report and `build/metrics.json` against the acceptance criteria in `SPEC.md`:
+- **Bed Contact (`bed_flat`)**: Ensure `min_z == 0.0` and bottom normal is `(0, 0, -1)` for print-bed adhesion.
+- **Top Planarity (`top_planar`)**: Where flat top layers are required, verify `top_normal == [0.0, 0.0, 1.0]` to avoid slicing terracing.
+- **Bounding Box & Tolerances**: Confirm `bbox` dimensions, clearances (e.g., `clearance = 0.35 mm`), and overhang angles (e.g., effective overhang $\le 45^\circ$ from vertical) match `SPEC.md`.
 
 ### Step 3: Visual Inspection via Single Quad-View Image
-Instead of reading multiple image files, read the 2x2 composite quad image in one single inspection step:
-- Hook: `preview/haltehaken_quad.png`
-- Bracket: `preview/wandhalterung_quad.png`
-- Assembly: `preview/zusammenbau_quad.png`
+Inspect the 2x2 composite Quad-View image instead of reading four separate screenshots:
+- Reference example (`projects/hose_hook/`):
+  - `preview/hose_hook_quad.png`
+  - `preview/wall_mount_quad.png`
+  - `preview/assembly_quad.png`
 
 **Quadrant Layout in Quad-Views:**
 1. **Top-Left (1. ISOMETRIC)**: 3D perspective for spatial and aesthetic inspection.
-2. **Top-Right (2. TOP)**: Orthographic Z-view for dovetail fit, screw hole alignments, wall thicknesses.
-3. **Bottom-Left (3. FRONT)**: Orthographic X-view for symmetry and dovetail wall angles.
-4. **Bottom-Right (4. SIDE)**: Orthographic Y-profile for tilt angle (5°), base transition, and flat top.
+2. **Top-Right (2. TOP)**: Orthographic Z-view for mating fit, hole alignment, and wall thicknesses.
+3. **Bottom-Left (3. FRONT)**: Orthographic X-view for symmetry and draft/dovetail angles.
+4. **Bottom-Right (4. SIDE)**: Orthographic Y-profile for tilt angles, base transitions, and flat top surfaces.
 
-### Step 4: Final Release Build
-Once the geometry passes visual and metric checks, run a full build to generate production STEP files:
+### Step 4: Final Release Build & Spec Sign-Off
+Once visual and metric checks pass, run a full build inside the project directory to generate production STEP files:
 ```bash
 ./generate.sh
 ```
+Verify that `SPEC.md`, `model.py`, and `build/metrics.json` agree completely before finishing.
 
 ---
 
-## 4. CLI Reference
+## 4. Per-Project CLI Reference
+
+Each project contains copies of `generate.sh` and `clean.sh` from `template/`.
 
 ### `generate.sh`
-Orchestrates Python build execution:
+`generate.sh` is generic and forwards all options (including `--help`) directly to the project's `model.py`. Standard harness flags implemented across projects:
 
 | Flag | Argument | Description | Default |
 | :--- | :--- | :--- | :--- |
-| `--fast`, `--no-step` | None | Skips STEP export; only generates STLs & screenshots | Off |
-| `--part` | `all`, `wandhalterung`, `haltehaken`, `baugruppe` | Generates only specified part(s) | `all` |
+| `--fast`, `--no-step` | None | Skips STEP export; only generates STLs & previews | Off |
+| `--part` | Project-defined (e.g. `all`, `wall_mount`, `hose_hook`, `assembly`) | Generates only specified part(s) | `all` |
 | `--views` | `all`, `quad`, `iso`, `none` | Controls rendering output mode | `all` |
 | `--json` | None | Emits structured JSON to `build/metrics.json` | Always on |
-| `--spiel` | `MM` (float) | Overrides dovetail slide clearance | `0.35` |
-| `--neigung` | `DEG` (float) | Overrides hook upward tilt angle | `5.0` |
-| `--dorn-l` | `MM` (float) | Overrides usable hook stem length | `50.0` |
-| `--dorn-d` | `MM` (float) | Overrides stem outer diameter | `16.0` |
-| `--kragen-d` | `MM` (float) | Overrides end collar outer diameter | `24.0` |
+| `--build-dir` | `DIR` | Output directory for CAD artifacts | `build` |
+| `--preview-dir` | `DIR` | Output directory for preview images | `preview` |
+
+Project-specific parameter flags are exposed by each project's `model.py` (run `./generate.sh --help`). For example, in `projects/hose_hook/`:
+- `--clearance MM` (default: `0.35`)
+- `--tilt DEG` (default: `-5.0`)
+- `--stem-length MM` / `--stem-l MM` (default: `50.0`)
+- `--stem-diameter MM` / `--stem-d MM` (default: `16.0`)
+- `--collar-diameter MM` / `--collar-d MM` (default: `24.0`)
 
 ### `clean.sh`
-Cleans up build artifacts:
+Cleans up build artifacts in the current project directory:
 
 | Flag | Description |
 | :--- | :--- |
-| *(no args)* | Removes `build/`, `preview/`, and loose root artifacts |
-| `--keep-step`, `-s` | Preserves `.step` files inside `build/` |
+| *(no args)* | Removes `build/`, `preview/`, `__pycache__/`, and loose root artifacts |
+| `--keep-step`, `-s` | Preserves `.step`/`.stp` files inside `build/` |
 | `--keep-preview`, `-p` | Preserves preview screenshots inside `preview/` |
 
 ---
 
 ## 5. `build123d` Best Practices & CAD Modeling Rules
 
-All CAD geometry in `schlauch_halteplatte_dorn.py` follows idiomatic **BREP modeling (`build123d` Builder mode)** rather than OpenSCAD-style 3D CSG boolean chains:
+All CAD geometry in every project's `model.py` follows idiomatic **BREP modeling (`build123d` Builder mode)** rather than OpenSCAD-style 3D CSG boolean chains:
 
 1. **2D before 3D (`BuildPart` $\rightarrow$ `BuildSketch` $\rightarrow$ `extrude` / `loft` / `revolve`)**:
    - Prefer 2D sketches and 2D fillets (`RectangleRounded`, `_draw_dovetail_u_profile`) before extruding or lofting into 3D.
-   - Bound 2D profiles to their exact target dimensions in the sketch (e.g., terminating the dovetail slider sketch at `cfg.y_top`) rather than lofting oversized shapes and trimming them with 3D cutting boxes.
+   - Bound 2D profiles to their exact target dimensions in the sketch (e.g., terminating the dovetail slider sketch at `cfg.y_top` in `projects/hose_hook/model.py`) rather than lofting oversized shapes and trimming them with 3D cutting boxes.
    - Model axisymmetric features (such as the stem, $50^\circ$ support cone, collar, or hose barbs) as a single 2D half-profile (`BuildSketch` $\rightarrow$ `BuildLine` $\rightarrow$ `Polyline` $\rightarrow$ `make_face()`) and revolve $360^\circ$ via `revolve(axis=...)` instead of unioning stacked `Cylinder` and `Cone` primitives.
 
 2. **Nested Builder Coordinate Systems & Placements**:
@@ -134,7 +155,7 @@ All CAD geometry in `schlauch_halteplatte_dorn.py` follows idiomatic **BREP mode
    - Use `CounterSinkHole` and `Hole` combined with `Locations((x1, y1), (x2, y2))` to instance hole features across multiple coordinates rather than manually uniting and subtracting cylinders and cones.
 
 5. **Parameterization (`Config` Dataclass & `@property` Derivations)**:
-   - Store primary dimensions as fields on `Config` and define dependent geometric values (`nut_tiefe`, `y_top`, `y_u_mitte`, `feder_breite_hinten`, `feder_breite_vorn`, `y_dorn`, `eff_overhang_winkel`) as `@property` methods.
+   - Store primary dimensions as fields on `Config` and define dependent geometric values (e.g., `slot_depth`, `y_top`, `y_u_center`, `slider_width_back`, `slider_width_front`, `y_stem`, `effective_overhang_angle` in `projects/hose_hook/model.py`) as `@property` methods.
    - Because `dataclasses.asdict(cfg)` serializes only dataclass fields (ignoring `@property` methods), derived formulas stay centralized in `Config` without polluting `build/metrics.json`.
 
 6. **Shallow Copies in Assemblies (`copy.copy`)**:
@@ -149,18 +170,25 @@ All CAD geometry in `schlauch_halteplatte_dorn.py` follows idiomatic **BREP mode
 
 1. **Pure Python CAD (`build123d`)**:
    - Do NOT introduce OpenSCAD source models (`.scad`). All CAD logic must remain in `build123d`.
-   - OpenSCAD is globally installed only to render STLs into PNGs headlessly.
-2. **Separate Artifacts**:
-   - Never generate combined printbed STLs. Output parts separately as `wandhalterung.stl` and `haltehaken.stl`.
+   - OpenSCAD is used strictly headlessly to rasterize STLs into PNGs.
+2. **Separate Printable Artifacts**:
+   - Never generate combined print-bed STLs. Export each printable part as its own `.stl` file (e.g., `wall_mount.stl` and `hose_hook.stl`) and combine parts only in assembly STEP exports (`assembly.step`) and preview renderings.
 3. **FDM Support-Free Design Rules**:
-   - The stem is tilted at $5^\circ$ upward to prevent hoses/cables from sliding off.
-   - The collar support cone must have a steep chamfer (default: $50^\circ$ relative to the tilted axis). With $5^\circ$ tilt, the overhang to vertical is $50^\circ - 5^\circ = 45^\circ$, making it 100% printable without supports.
-   - The base cone transitions smoothly via `loft()` from a horizontal circular footprint on the slider ($Z = \text{nut\_tiefe}$) into the $5^\circ$ tilted stem.
-4. **Planar Top Cut**:
-   - The collar top face MUST be cut with a horizontal plane (`Plane.XY.offset(z_dorn_ebene)`, `normal = (0, 0, 1)`) via `split()` so the 3D printer finishes on a flat layer without micro-steps or slanted infill.
-5. **Dovetail Sliding Tolerances**:
-   - Default clearance is $0.35\text{ mm}$ on each mating face ($0.70\text{ mm}$ total width difference).
-   - Bottom of dovetail channel has a $4.0\text{ mm}$ solid backing floor (`boden_dicke`).
+   - Orient parts so their largest flat surface rests on `Z = 0` (`bed_flat == true`).
+   - Keep unsupported overhangs $\le 45^\circ$ from vertical (in `projects/hose_hook/`, the $50^\circ$ collar chamfer compensates for the $5^\circ$ upward stem tilt: $50^\circ - 5^\circ = 45^\circ$).
+   - Transition tilted features smoothly from horizontal slider surfaces via `loft()`.
+4. **Planar Top Cuts**:
+   - Where a tilted feature ends near the top, bisect it with a horizontal plane (`Plane.XY.offset(...)`, `normal = (0, 0, 1)`) via `split()` so the 3D printer finishes cleanly without micro-steps.
+5. **Tolerances & Clearances**:
+   - Parameterize mating clearances explicitly in `Config` (e.g., `clearance = 0.35 mm` per side on dovetails) and document them in `SPEC.md`.
 6. **Autodesk Fusion STEP Exchange**:
-   - Standard STEP (`AP214`) exports exact analytical B-Rep surfaces (`PLANE`, `CYLINDRICAL_SURFACE`, `CONICAL_SURFACE`) and assembly hierarchy (`Compound`), not a parametric feature timeline.
-   - Preserving clean analytical surfaces (via `revolve`, `extrude`, `CounterSinkHole`, and `split`) allows Autodesk Fusion's **Find Features** (in Direct Modeling mode) and **Press Pull** tools to recognize cylinders, cones, holes, and fillets after STEP import.
+   - Standard STEP (`AP214`) exports exact analytical B-Rep surfaces (`PLANE`, `CYLINDRICAL_SURFACE`, `CONICAL_SURFACE`) and assembly hierarchy (`Compound`).
+   - Preserving clean analytical surfaces (via `revolve`, `extrude`, `CounterSinkHole`, and `split`) allows Autodesk Fusion's **Find Features** and **Press Pull** tools to recognize cylinders, cones, holes, and fillets after STEP import.
+
+---
+
+## 7. Creating a New Project
+
+To start a new parametric CAD project:
+1. Use the **`new-project`** skill (`.agents/skills/new-project/SKILL.md`), which guides requirement gathering, copies `template/` to `projects/<project_name>/`, authors the initial `SPEC.md`, implements `model.py`, runs verification (`--fast --views quad` followed by `./generate.sh`), and hands off into the `SPEC.md`-synchronized iteration loop.
+2. Or manually copy `template/` into `projects/<project_name>/`, customize `SPEC.md`, `README.md`, and `model.py`, and run `./generate.sh`.

@@ -1,8 +1,8 @@
-# Generierte Build- und Preview-Ordner
-/build/
-/preview/
+# Generated CAD build and preview directories
+**/build/
+**/preview/
 
-# Python Cache
-__pycache__/
+# Python cache
+**/__pycache__/
 *.py[cod]
 *$py.class

@@ -1,54 +1,53 @@
-# Universal-Wandhalterung mit Schnellwechsel-Haltehaken
+# Parametric CAD & 3D-Printing Workspace (`build123d`)
 
-Parametrisches CAD- und 3D-Druck-Projekt für ein modulares Schwalbenschwanz-Haltesystem (z. B. für Schläuche, Kabel oder Werkzeuge). Modelliert in reinem Python mit [`build123d`](https://github.com/gumyr/build123d) für nativen STEP-CAD-Export (Autodesk Fusion) und STL-Export für den FDM-3D-Druck.
-
----
-
-## Highlights & Features
-
-- **Zweiteiliges Stecksystem**:
-  - **Wandhalterung**: Robuste Basis mit zwei versenkten Senkkopf-Schraubenbohrungen und U-Kanal Schwalbenschwanzführung.
-  - **Haltehaken (Baseline)**: Abnehmbarer Einschub mit 5° Aufwärtsneigung (verhindert Abrutschen) und integriertem Endkragen.
-- **100% Supportfreier FDM-Druck**:
-  - $50^\circ$-Stützkegel unter dem Kragen gleicht die 5°-Neigung aus (effektiver Überhang $\le 45^\circ$).
-  - Die Deckfläche ist horizontal planparallel zum Druckbett geschnitten (keine Stufenbildung im Slicer).
-- **Multi-View Visualisierung**: Automatische 4-in-1 Quad-View Renderings (Iso, Top, Front, Side) via Headless-Rasterizer.
+A generalized multi-project CAD workspace engineered for **Agentic Coding**, **support-free FDM 3D printing**, and **Autodesk Fusion STEP exchange**. Every project lives under `projects/<name>/` with its own living specification (`SPEC.md`), parametric Python model (`model.py`), build scripts (`generate.sh`, `clean.sh`), and generated artifacts (`build/`, `preview/`).
 
 ---
 
-## Schnellstart
+## Prerequisites
 
-### Voraussetzungen
 - Python 3.10+
-- `build123d` und `Pillow`
-- `openscad` (optional, für automatische Vorschau-Renderings)
+- `build123d` and `Pillow`
+- `openscad` (optional, used strictly as a headless renderer for multi-view preview PNGs)
 
 ```bash
 pip install build123d pillow
 ```
 
-### Build ausführen
-```bash
-# Standard-Build: STEP für Fusion, STL für 3D-Druck und alle Renderings
-./generate.sh
+---
 
-# Schneller Testlauf (nur STLs & Quad-Views in ~2-3s):
-./generate.sh --fast
+## Repository Structure
 
-# Nur den Haltehaken generieren:
-./generate.sh --fast --part haltehaken --views quad
-
-# Bereinigung:
-./clean.sh
-```
+- [`AGENTS.md`](AGENTS.md): Workspace guidelines, `SPEC.md`-synchronized iteration loop, and `build123d` modeling standards.
+- [`template/`](template/): Canonical project template (`generate.sh`, `clean.sh`, `model.py`, `SPEC.md`, `README.md`).
+- [`.agents/skills/new-project/SKILL.md`](.agents/skills/new-project/SKILL.md): Skill for scaffolding and implementing new CAD projects from `template/`.
+- `projects/`: Individual parametric CAD projects:
+  - [`projects/hose_hook/`](projects/hose_hook/): Reference project — Universal Wall Mount & Quick-Release Hose Hook (`wall_mount`, `hose_hook`, `assembly`).
+  - [`projects/remote_stand/`](projects/remote_stand/): Sculptural 4-slot couch-table stand for Light, Fire TV, LG, and Bose 3-2-1 remotes (`remote_stand`, `assembly`).
 
 ---
 
-## Verzeichnisstruktur
+## Quickstart
 
-- [`schlauch_halteplatte_dorn.py`](schlauch_halteplatte_dorn.py): Hauptmodell & parametrischer CAD-Generator.
-- [`generate.sh`](generate.sh): Build-Orchestrierung mit CLI-Parametrisierung (`--spiel`, `--neigung`, `--fast`).
-- [`clean.sh`](clean.sh): Bereinigungsskript (`--keep-step`, `--keep-preview`).
-- `build/`: Generierte `.step`, `.stl` und `metrics.json`.
-- `preview/`: Generierte Renderings und Quad-View Collagen (`.png`).
-- [`AGENTS.md`](AGENTS.md): Detaillierte Entwicklungs- und Iterationsrichtlinien für KI-Agenten.
+### Build an Existing Project (`projects/hose_hook`)
+```bash
+cd projects/hose_hook
+
+# Full release build: STEP for Autodesk Fusion, STL for 3D printing, metrics.json & all previews
+./generate.sh
+
+# Fast iteration (STLs & Quad-Views in ~2-3s, skips STEP export)
+./generate.sh --fast --part hose_hook --views quad
+
+# Clean generated artifacts
+./clean.sh
+```
+
+### Start a New Project
+- **With an AI Agent**: Ask to create a new CAD project (triggers the `new-project` skill in `.agents/skills/new-project/SKILL.md`), which gathers requirements, copies `template/` into `projects/<new_name>/`, writes `SPEC.md`, implements `model.py`, and verifies the initial build.
+- **Manually**:
+  ```bash
+  cp -r template projects/my_project
+  cd projects/my_project
+  ./generate.sh --fast --views quad
+  ```
