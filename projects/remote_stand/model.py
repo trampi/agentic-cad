@@ -18,11 +18,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from PIL import Image, ImageDraw
 from build123d import *
 
 
@@ -30,41 +29,97 @@ from build123d import *
 # CONFIGURATION & DEFAULT PARAMETERS
 # ====================================================================
 
+# TODO(n-slot): Replace fixed 4-slot fields with dynamic List[SlotSpec] so users
+# can add/remove remote slots interactively once the base web customizer is live.
 @dataclass
 class Config:
     # Staggered cradle X-widths (front to back: ~75% of each remote's length)
-    tier1_width: float = 92.0               # Slot 1 (Light, 125 mm) cradle X width (mm)
-    tier2_width: float = 105.0              # Slot 2 (Fire TV, 140 mm) cradle X width (mm)
-    tier3_width: float = 128.0              # Slot 3 (LG, 171 mm) cradle X width (mm)
-    tier4_width: float = 172.0              # Slot 4 (Bose 3-2-1, 230 mm) cradle X width (mm)
+    tier1_width: float = field(
+        default=92.0,
+        metadata={"label": "Tier 1 Width (Light)", "min": 50.0, "max": 180.0, "step": 1.0, "unit": "mm", "group": "Slot 1 (Light)", "cli": "--tier1-width"},
+    )
+    tier2_width: float = field(
+        default=105.0,
+        metadata={"label": "Tier 2 Width (Fire TV)", "min": 50.0, "max": 200.0, "step": 1.0, "unit": "mm", "group": "Slot 2 (Fire TV)", "cli": "--tier2-width"},
+    )
+    tier3_width: float = field(
+        default=128.0,
+        metadata={"label": "Tier 3 Width (LG)", "min": 60.0, "max": 220.0, "step": 1.0, "unit": "mm", "group": "Slot 3 (LG)", "cli": "--tier3-width"},
+    )
+    tier4_width: float = field(
+        default=172.0,
+        metadata={"label": "Tier 4 Width (Bose 3-2-1)", "min": 70.0, "max": 250.0, "step": 1.0, "unit": "mm", "group": "Slot 4 (Bose 3-2-1)", "cli": "--tier4-width"},
+    )
 
     # Overall stand footprint & aesthetic styling
-    corner_radius: float = 10.0             # Outer XY planform corner fillet radius per tier (mm)
-    tilt_angle: float = 30.0                # Cradle backward tilt from vertical (degrees)
+    corner_radius: float = field(
+        default=10.0,
+        metadata={"label": "Outer Corner Radius", "min": 0.0, "max": 20.0, "step": 0.5, "unit": "mm", "group": "Stand Form"},
+    )
+    tilt_angle: float = field(
+        default=30.0,
+        metadata={"label": "Cradle Tilt Angle", "min": 10.0, "max": 45.0, "step": 1.0, "unit": "°", "group": "Stand Form", "cli": "--tilt"},
+    )
     base_thickness: float = 6.0             # Z thickness beneath Slot 1 back corner (mm)
-    tier_step: float = 4.0                  # Z elevation step between successive slot floors (mm)
+    tier_step: float = field(
+        default=4.0,
+        metadata={"label": "Tier Z Step", "min": 0.0, "max": 12.0, "step": 0.5, "unit": "mm", "group": "Stand Form", "cli": "--tier-step"},
+    )
     rib_thickness: float = 7.0              # Y crest width of divider ribs (mm)
     front_lip_depth: float = 12.0           # Front containment height along tilted plane (mm)
     profile_fillet_radius: float = 2.5      # 2D fillet radius for crests and troughs (mm)
-    rail_width: float = 16.0                # Uniform side support rail width per tier (mm)
+    rail_width: float = field(
+        default=16.0,
+        metadata={"label": "Side Rail Width", "min": 0.0, "max": 30.0, "step": 0.5, "unit": "mm", "group": "Pickup Channel", "cli": "--rail-width"},
+    )
     cutout_xy_fillet_radius: float = 8.0    # 2D XY fillet radius on stepped canyon transitions (mm)
-    cutout_floor_z: float = 2.4             # Thin continuous flat horizontal floor Z in canyon (mm)
+    cutout_floor_z: float = field(
+        default=2.4,
+        metadata={"label": "Channel Floor Z", "min": 1.2, "max": 6.0, "step": 0.2, "unit": "mm", "group": "Pickup Channel", "cli": "--cutout-floor-z"},
+    )
     cutout_fillet_radius: float = 5.0       # Bottom perimeter cove fillet radius in canyon (mm)
 
     # Perpendicular slot widths (front to back: Light, Fire TV, LG, Bose 3-2-1)
-    slot1_width: float = 20.0               # Slot 1 (Front): Small Light remote (mm)
-    slot2_width: float = 20.0               # Slot 2: Amazon Fire TV remote (mm)
-    slot3_width: float = 35.0               # Slot 3: LG TV remote (mm)
-    slot4_width: float = 36.0               # Slot 4 (Back): Bose 3-2-1 remote (mm)
+    slot1_width: float = field(
+        default=20.0,
+        metadata={"label": "Slot 1 Depth", "min": 10.0, "max": 50.0, "step": 0.5, "unit": "mm", "group": "Slot 1 (Light)", "cli": "--slot1-width"},
+    )
+    slot2_width: float = field(
+        default=20.0,
+        metadata={"label": "Slot 2 Depth", "min": 10.0, "max": 50.0, "step": 0.5, "unit": "mm", "group": "Slot 2 (Fire TV)", "cli": "--slot2-width"},
+    )
+    slot3_width: float = field(
+        default=35.0,
+        metadata={"label": "Slot 3 Depth", "min": 12.0, "max": 60.0, "step": 0.5, "unit": "mm", "group": "Slot 3 (LG)", "cli": "--slot3-width"},
+    )
+    slot4_width: float = field(
+        default=36.0,
+        metadata={"label": "Slot 4 Depth", "min": 12.0, "max": 60.0, "step": 0.5, "unit": "mm", "group": "Slot 4 (Bose 3-2-1)", "cli": "--slot4-width"},
+    )
 
     # Backrest heights along the 30-degree tilted plane (mm)
-    slot1_backrest: float = 28.0            # Slot 1 backrest length (mm)
-    slot2_backrest: float = 36.0            # Slot 2 backrest length (mm)
-    slot3_backrest: float = 42.0            # Slot 3 backrest length (mm)
-    slot4_backrest: float = 48.0            # Slot 4 backrest length (mm)
+    slot1_backrest: float = field(
+        default=28.0,
+        metadata={"label": "Slot 1 Backrest", "min": 15.0, "max": 70.0, "step": 1.0, "unit": "mm", "group": "Slot 1 (Light)"},
+    )
+    slot2_backrest: float = field(
+        default=36.0,
+        metadata={"label": "Slot 2 Backrest", "min": 15.0, "max": 70.0, "step": 1.0, "unit": "mm", "group": "Slot 2 (Fire TV)"},
+    )
+    slot3_backrest: float = field(
+        default=42.0,
+        metadata={"label": "Slot 3 Backrest", "min": 15.0, "max": 75.0, "step": 1.0, "unit": "mm", "group": "Slot 3 (LG)"},
+    )
+    slot4_backrest: float = field(
+        default=48.0,
+        metadata={"label": "Slot 4 Backrest", "min": 15.0, "max": 85.0, "step": 1.0, "unit": "mm", "group": "Slot 4 (Bose 3-2-1)"},
+    )
 
     # Reference remote bounding boxes (optional showcase & fit verification)
-    show_remote_boxes: bool = True          # Toggle reference bounding boxes in assembly
+    show_remote_boxes: bool = field(
+        default=True,
+        metadata={"label": "Show Remote Boxes", "group": "Display"},
+    )
     light_length: float = 125.0             # Slot 1 Light remote length X (mm)
     light_height: float = 38.0              # Slot 1 Light remote height (mm)
     light_thickness: float = 15.0           # Slot 1 Light remote thickness (mm)
@@ -385,6 +440,35 @@ def create_remote_bounding_boxes(cfg: Config) -> List[Tuple[str, Part, Tuple[flo
     return parts
 
 
+def build_web_parts(cfg: Config) -> List[Dict[str, Any]]:
+    """Return structured part definitions for static & interactive web previews."""
+    parts: List[Dict[str, Any]] = [
+        {
+            "name": "remote_stand",
+            "shape": create_remote_stand(cfg),
+            "color": (0.22, 0.36, 0.46),
+            "opacity": 1.0,
+            "printable": True,
+            "assembly_offset": (0.0, 0.0, 0.0),
+            "exploded_offset": (0.0, 0.0, 0.0),
+        }
+    ]
+    if cfg.show_remote_boxes:
+        for r_name, r_part, rgb in create_remote_bounding_boxes(cfg):
+            parts.append(
+                {
+                    "name": r_name,
+                    "shape": r_part,
+                    "color": rgb,
+                    "opacity": 0.35,
+                    "printable": False,
+                    "assembly_offset": (0.0, 0.0, 0.0),
+                    "exploded_offset": (0.0, 0.0, 20.0),
+                }
+            )
+    return parts
+
+
 # ====================================================================
 # SANITY CHECKS & GEOMETRIC METRICS (AGENTIC FEEDBACK)
 # ====================================================================
@@ -496,6 +580,8 @@ def render_single_view(csg_text: str, out_png: Path, camera: str, projection: st
 def build_quad_collage(view_paths: Dict[str, Path], out_quad_png: Path):
     """Combine 4 views into a 2x2 contact sheet collage (Quad-View)."""
     try:
+        from PIL import Image, ImageDraw
+
         iso = Image.open(view_paths["iso"])
         top = Image.open(view_paths["top"])
         front = Image.open(view_paths["front"])

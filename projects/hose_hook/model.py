@@ -19,11 +19,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from PIL import Image, ImageDraw
 from build123d import *
 
 
@@ -34,20 +33,35 @@ from build123d import *
 @dataclass
 class Config:
     # Mode
-    stem_type: str = "hose_hook"            # "hose_hook" (baseline) or "hose_barb"
+    stem_type: str = field(
+        default="hose_hook",
+        metadata={"label": "Stem Variant", "choices": ["hose_hook", "hose_barb"], "group": "Mode"},
+    )
 
     # Wall mount bracket
-    bracket_width: float = 50.0             # Overall bracket width (mm)
-    bracket_height: float = 70.0            # Overall bracket height (mm)
+    bracket_width: float = field(
+        default=50.0,
+        metadata={"label": "Bracket Width", "min": 42.0, "max": 90.0, "step": 1.0, "unit": "mm", "group": "Wall Mount"},
+    )
+    bracket_height: float = field(
+        default=70.0,
+        metadata={"label": "Bracket Height", "min": 50.0, "max": 120.0, "step": 1.0, "unit": "mm", "group": "Wall Mount"},
+    )
     bracket_depth: float = 12.0             # Overall depth / thickness (mm)
     back_wall_thickness: float = 4.0        # Solid backing thickness behind slot (mm)
-    corner_radius: float = 4.0              # Outer corner fillet radius (mm)
+    corner_radius: float = field(
+        default=4.0,
+        metadata={"label": "Corner Radius", "min": 0.0, "max": 10.0, "step": 0.5, "unit": "mm", "group": "Wall Mount"},
+    )
     bottom_margin: float = 4.0              # Wall thickness below U-channel (mm)
 
     # Dovetail guide channel
     slot_width_back: float = 36.0           # Slot width at channel floor (mm)
     slot_width_front: float = 30.0          # Slot width at front surface (mm)
-    clearance: float = 0.35                 # Sliding clearance per mating face (mm)
+    clearance: float = field(
+        default=0.35,
+        metadata={"label": "Dovetail Clearance", "min": 0.15, "max": 0.65, "step": 0.05, "unit": "mm", "group": "Dovetail Fit", "cli": "--clearance"},
+    )
 
     # Mounting screw holes (2x M4 countersunk in bracket)
     screw_diameter: float = 4.4             # Clearance shaft diameter (mm)
@@ -57,21 +71,45 @@ class Config:
     screw_bottom_y: float = -14.0           # Bottom screw Y position (mm)
 
     # Stem / hook (baseline)
-    stem_diameter: float = 16.0             # Stem outer diameter (mm)
-    stem_length: float = 50.0               # Usable stem length (mm)
-    stem_tilt: float = -5.0                 # Upward tilt angle around X axis (degrees)
+    stem_diameter: float = field(
+        default=16.0,
+        metadata={"label": "Stem Diameter", "min": 8.0, "max": 32.0, "step": 0.5, "unit": "mm", "group": "Stem", "cli": "--stem-diameter"},
+    )
+    stem_length: float = field(
+        default=50.0,
+        metadata={"label": "Stem Length", "min": 20.0, "max": 120.0, "step": 1.0, "unit": "mm", "group": "Stem", "cli": "--stem-length"},
+    )
+    stem_tilt: float = field(
+        default=-5.0,
+        metadata={"label": "Stem Tilt (X)", "min": -15.0, "max": 0.0, "step": 0.5, "unit": "°", "group": "Stem", "cli": "--tilt"},
+    )
     base_chamfer: float = 5.0               # Width/height of base transition cone (mm)
-    inner_bore: float = 0.0                 # Through-bore diameter (0 = solid) (mm)
+    inner_bore: float = field(
+        default=0.0,
+        metadata={"label": "Inner Bore Ø", "min": 0.0, "max": 14.0, "step": 0.5, "unit": "mm", "group": "Stem"},
+    )
     stem_y_factor: float = 0.42             # Relative Y position of stem on slider
 
     # Hose hook end collar details
-    collar_diameter: float = 24.0           # End collar outer diameter (mm)
-    collar_thickness: float = 4.0           # End collar thickness (mm)
+    collar_diameter: float = field(
+        default=24.0,
+        metadata={"label": "Collar Diameter", "min": 14.0, "max": 48.0, "step": 0.5, "unit": "mm", "group": "Hose Hook", "cli": "--collar-diameter"},
+    )
+    collar_thickness: float = field(
+        default=4.0,
+        metadata={"label": "Collar Thickness", "min": 2.0, "max": 12.0, "step": 0.5, "unit": "mm", "group": "Hose Hook"},
+    )
     collar_chamfer_angle: float = 50.0      # Support cone angle relative to stem axis (deg)
 
     # Hose barb variant details
-    barb_count: int = 3                     # Number of retention barbs
-    barb_height: float = 1.2                # Radial barb protrusion (mm)
+    barb_count: int = field(
+        default=3,
+        metadata={"label": "Barb Count", "min": 1, "max": 6, "step": 1, "unit": "", "group": "Hose Barb"},
+    )
+    barb_height: float = field(
+        default=1.2,
+        metadata={"label": "Barb Protrusion", "min": 0.5, "max": 3.0, "step": 0.1, "unit": "mm", "group": "Hose Barb"},
+    )
     barb_length: float = 7.0                # Length of each barb segment (mm)
     tip_chamfer: float = 4.0                # Lead-in tip chamfer length (mm)
 
@@ -311,6 +349,32 @@ def create_hook_slider(cfg: Config, stem_type: Optional[str] = None) -> Part:
     return slider
 
 
+def build_web_parts(cfg: Config) -> List[Dict[str, Any]]:
+    """Return structured part definitions for static & interactive web previews."""
+    bracket = create_wall_mount(cfg)
+    hook = create_hook_slider(cfg, cfg.stem_type)
+    return [
+        {
+            "name": "wall_mount",
+            "shape": bracket,
+            "color": (0.95, 0.45, 0.12),
+            "opacity": 1.0,
+            "printable": True,
+            "assembly_offset": (0.0, 0.0, 0.0),
+            "exploded_offset": (0.0, 0.0, 0.0),
+        },
+        {
+            "name": "hose_hook",
+            "shape": hook,
+            "color": (0.25, 0.27, 0.31),
+            "opacity": 1.0,
+            "printable": True,
+            "assembly_offset": (0.0, 0.0, cfg.back_wall_thickness),
+            "exploded_offset": (0.0, 25.0, cfg.back_wall_thickness + 18.0),
+        },
+    ]
+
+
 # ====================================================================
 # SANITY CHECKS & GEOMETRIC METRICS (AGENTIC FEEDBACK)
 # ====================================================================
@@ -424,6 +488,8 @@ def render_single_view(csg_text: str, out_png: Path, camera: str, projection: st
 def build_quad_collage(view_paths: Dict[str, Path], out_quad_png: Path):
     """Combine 4 views into a 2x2 contact sheet collage (Quad-View)."""
     try:
+        from PIL import Image, ImageDraw
+
         iso = Image.open(view_paths["iso"])
         top = Image.open(view_paths["top"])
         front = Image.open(view_paths["front"])

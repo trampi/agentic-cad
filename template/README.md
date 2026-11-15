@@ -24,6 +24,9 @@ Parametric CAD and 3D-printing project modeled in pure Python using [`build123d`
 
 # Clean generated artifacts
 ./clean.sh
+
+# Preview in the static web gallery & 3D customizer (from repo root)
+python3 ../../scripts/build_site.py --out ../../_site --serve
 ```
 
 ---

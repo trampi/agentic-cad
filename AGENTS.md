@@ -154,8 +154,10 @@ All CAD geometry in every project's `model.py` follows idiomatic **BREP modeling
 4. **Native Hole Features & Instancing (`Locations`, `CounterSinkHole`, `Hole`)**:
    - Use `CounterSinkHole` and `Hole` combined with `Locations((x1, y1), (x2, y2))` to instance hole features across multiple coordinates rather than manually uniting and subtracting cylinders and cones.
 
-5. **Parameterization (`Config` Dataclass & `@property` Derivations)**:
+5. **Parameterization (`Config` Dataclass, `@property` Derivations & Web Metadata)**:
    - Store primary dimensions as fields on `Config` and define dependent geometric values (e.g., `slot_depth`, `y_top`, `y_u_center`, `slider_width_back`, `slider_width_front`, `y_stem`, `effective_overhang_angle` in `projects/hose_hook/model.py`) as `@property` methods.
+   - Annotate tunable `Config` fields with `dataclasses.field(metadata={"label": ..., "min": ..., "max": ..., "step": ..., "unit": ..., "group": ...})` (or `"choices"` / `bool`) and expose `build_web_parts(cfg)` so `scripts/build_site.py` and the static Pyodide/`OCP.wasm` customizer (`web/`) work automatically for every project.
+   - Keep `Pillow` (`PIL`) imports lazy inside CLI/collage rendering helpers (`build_quad_collage`) so `model.py` imports cleanly inside browser Pyodide without extra image dependencies.
    - Because `dataclasses.asdict(cfg)` serializes only dataclass fields (ignoring `@property` methods), derived formulas stay centralized in `Config` without polluting `build/metrics.json`.
 
 6. **Shallow Copies in Assemblies (`copy.copy`)**:

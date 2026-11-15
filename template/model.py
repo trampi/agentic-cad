@@ -16,11 +16,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any, Dict, List
 
-from PIL import Image, ImageDraw
 from build123d import *
 
 
@@ -31,12 +30,30 @@ from build123d import *
 @dataclass
 class Config:
     # Starter part dimensions (mm) — replace/extend per SPEC.md
-    width: float = 60.0             # Overall X width (mm)
-    length: float = 40.0            # Overall Y length (mm)
-    thickness: float = 6.0          # Z height / plate thickness (mm)
-    corner_radius: float = 4.0      # Outer corner fillet radius (mm)
-    hole_diameter: float = 4.5      # Mounting hole diameter (mm)
-    hole_margin: float = 8.0        # Center offset from X edges (mm)
+    width: float = field(
+        default=60.0,
+        metadata={"label": "Plate Width", "min": 20.0, "max": 200.0, "step": 1.0, "unit": "mm", "group": "Plate", "cli": "--width"},
+    )
+    length: float = field(
+        default=40.0,
+        metadata={"label": "Plate Length", "min": 20.0, "max": 200.0, "step": 1.0, "unit": "mm", "group": "Plate", "cli": "--length"},
+    )
+    thickness: float = field(
+        default=6.0,
+        metadata={"label": "Plate Thickness", "min": 2.0, "max": 30.0, "step": 0.5, "unit": "mm", "group": "Plate", "cli": "--thickness"},
+    )
+    corner_radius: float = field(
+        default=4.0,
+        metadata={"label": "Corner Radius", "min": 0.0, "max": 30.0, "step": 0.5, "unit": "mm", "group": "Plate"},
+    )
+    hole_diameter: float = field(
+        default=4.5,
+        metadata={"label": "Hole Diameter", "min": 0.0, "max": 16.0, "step": 0.1, "unit": "mm", "group": "Mounting Holes"},
+    )
+    hole_margin: float = field(
+        default=8.0,
+        metadata={"label": "Hole Edge Margin", "min": 3.0, "max": 30.0, "step": 0.5, "unit": "mm", "group": "Mounting Holes"},
+    )
 
     @property
     def hole_x_offset(self) -> float:
@@ -50,9 +67,13 @@ class Config:
 
 def create_base_plate(cfg: Config) -> Part:
     """Create the parametric starter base plate with symmetric mounting holes."""
+    r_eff = min(cfg.corner_radius, min(cfg.width, cfg.length) / 2.0 - 0.1)
     with BuildPart() as part_bp:
         with BuildSketch(Plane.XY):
-            RectangleRounded(cfg.width, cfg.length, cfg.corner_radius)
+            if r_eff > 0.0:
+                RectangleRounded(cfg.width, cfg.length, r_eff)
+            else:
+                Rectangle(cfg.width, cfg.length)
         extrude(amount=cfg.thickness)
 
         if cfg.hole_diameter > 0.0 and cfg.hole_x_offset > 0.0:
@@ -62,6 +83,21 @@ def create_base_plate(cfg: Config) -> Part:
     part = part_bp.part
     part.label = "BasePlate"
     return part
+
+
+def build_web_parts(cfg: Config) -> List[Dict[str, Any]]:
+    """Return structured part definitions for static & interactive web previews."""
+    return [
+        {
+            "name": "base_plate",
+            "shape": create_base_plate(cfg),
+            "color": (0.25, 0.45, 0.75),
+            "opacity": 1.0,
+            "printable": True,
+            "assembly_offset": (0.0, 0.0, 0.0),
+            "exploded_offset": (0.0, 0.0, 0.0),
+        }
+    ]
 
 
 # ====================================================================
@@ -169,6 +205,8 @@ def render_single_view(csg_text: str, out_png: Path, camera: str, projection: st
 def build_quad_collage(view_paths: Dict[str, Path], out_quad_png: Path):
     """Combine 4 views into a 2x2 contact sheet collage (Quad-View)."""
     try:
+        from PIL import Image, ImageDraw
+
         iso = Image.open(view_paths["iso"])
         top = Image.open(view_paths["top"])
         front = Image.open(view_paths["front"])

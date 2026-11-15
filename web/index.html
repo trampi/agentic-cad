@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Parametric CAD Showcase — build123d</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- Gallery View -->
+  <div id="gallery-view" class="page hidden">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-badge">build123d</span>
+        <div>
+          <h1 id="repo-title">Parametric CAD Showcase</h1>
+          <p id="repo-subtitle" class="muted">Single-source Python CAD models — instant 3D preview &amp; client-side WASM customizer.</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <span class="pill">Static · Zero Server</span>
+      </div>
+    </header>
+
+    <main class="gallery-main">
+      <div id="project-grid" class="project-grid"></div>
+    </main>
+  </div>
+
+  <!-- Project 3D Viewer & Customizer View -->
+  <div id="workspace-view" class="workspace hidden">
+    <header class="topbar workspace-topbar">
+      <div class="brand">
+        <a href="./" class="btn btn-ghost" id="back-btn">&larr; All Projects</a>
+        <div>
+          <h1 id="project-title">Loading…</h1>
+          <p id="project-summary" class="muted"></p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <div id="kernel-status" class="status-pill status-idle">
+          <span class="dot"></span>
+          <span id="kernel-status-text">Static Preview</span>
+        </div>
+        <button id="load-kernel-btn" class="btn btn-primary" type="button">
+          Enable Live Customizer (WASM)
+        </button>
+      </div>
+    </header>
+
+    <div class="workspace-body">
+      <!-- 3D Viewport -->
+      <section class="viewport-pane">
+        <div id="viewport-canvas-wrap" class="canvas-wrap"></div>
+
+        <div class="viewport-hud top-left">
+          <div class="btn-group">
+            <button class="btn btn-sm" data-cam="iso" type="button">Iso</button>
+            <button class="btn btn-sm" data-cam="top" type="button">Top</button>
+            <button class="btn btn-sm" data-cam="front" type="button">Front</button>
+            <button class="btn btn-sm" data-cam="side" type="button">Side</button>
+          </div>
+          <div class="btn-group">
+            <button id="toggle-edges-btn" class="btn btn-sm active" type="button">Edges</button>
+            <button id="toggle-grid-btn" class="btn btn-sm active" type="button">Bed Grid</button>
+            <button id="toggle-ref-btn" class="btn btn-sm active hidden" type="button">Reference</button>
+            <button id="toggle-exploded-btn" class="btn btn-sm hidden" type="button">Exploded</button>
+          </div>
+        </div>
+
+        <div id="loading-overlay" class="loading-overlay hidden">
+          <div class="spinner"></div>
+          <div id="loading-overlay-text">Initializing CAD kernel…</div>
+        </div>
+
+        <div class="viewport-hud bottom-left muted small">
+          Drag: Orbit · Right-drag: Pan · Scroll: Zoom · Z-up (mm)
+        </div>
+      </section>
+
+      <!-- Customizer & Metrics Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-scroll">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Parameters</h2>
+              <button id="reset-params-btn" class="btn btn-xs btn-ghost" type="button">Reset</button>
+            </div>
+            <p id="wasm-hint" class="hint">
+              Viewing lightweight pre-built mesh. Adjusting any slider loads Python + <code>build123d</code> (~25 MB, cached once in browser).
+            </p>
+            <div id="controls-container" class="controls-container"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Geometry &amp; Printability</h2>
+            </div>
+            <div id="metrics-container" class="metrics-container"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Export</h2>
+            </div>
+            <div id="export-buttons" class="export-buttons"></div>
+            <div class="cli-box">
+              <div class="cli-header">
+                <span>Local CLI Equivalent</span>
+                <button id="copy-cli-btn" class="btn btn-xs btn-ghost" type="button">Copy</button>
+              </div>
+              <pre id="cli-command" class="cli-pre">./generate.sh</pre>
+            </div>
+          </section>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

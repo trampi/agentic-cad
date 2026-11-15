@@ -20,6 +20,8 @@ pip install build123d pillow
 
 - [`AGENTS.md`](AGENTS.md): Workspace guidelines, `SPEC.md`-synchronized iteration loop, and `build123d` modeling standards.
 - [`template/`](template/): Canonical project template (`generate.sh`, `clean.sh`, `model.py`, `SPEC.md`, `README.md`).
+- [`web/`](web/): Static Three.js + Pyodide (`OCP.wasm`) gallery & parametric 3D customizer frontend.
+- [`scripts/build_site.py`](scripts/build_site.py): Static site builder emitting `_site/` for local preview (`--serve`) or GitHub Pages ([`.github/workflows/pages.yml`](.github/workflows/pages.yml)).
 - [`.agents/skills/new-project/SKILL.md`](.agents/skills/new-project/SKILL.md): Skill for scaffolding and implementing new CAD projects from `template/`.
 - `projects/`: Individual parametric CAD projects:
   - [`projects/hose_hook/`](projects/hose_hook/): Reference project — Universal Wall Mount & Quick-Release Hose Hook (`wall_mount`, `hose_hook`, `assembly`).
@@ -28,6 +30,13 @@ pip install build123d pillow
 ---
 
 ## Quickstart
+
+### Build & Serve the Static Web Showcase (Gallery + Live 3D Customizer)
+```bash
+# Build static gallery, default meshes, thumbnails, and parameter schemas into _site/
+python3 scripts/build_site.py --out _site --serve
+# Open http://127.0.0.1:8000/ in your browser
+```
 
 ### Build an Existing Project (`projects/hose_hook`)
 ```bash

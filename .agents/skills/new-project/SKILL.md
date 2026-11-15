@@ -55,9 +55,9 @@ Ensure `generate.sh` and `clean.sh` remain generic wrappers (do not hardcode pro
 
 Implement the project in `model.py` following the `build123d` standards in `AGENTS.md`:
 
-- Define primary dimensions on the `Config` dataclass and derived geometry as `@property` methods.
+- Define primary dimensions on the `Config` dataclass (annotating web-customizable fields with `field(metadata={"label": ..., "min": ..., "max": ..., "step": ..., "unit": ..., "group": ...})` or `"choices"`) and derived geometry as `@property` methods.
 - Build parts using 2D-before-3D BREP workflows (`BuildPart` $\rightarrow$ `BuildSketch` $\rightarrow$ `extrude` / `loft` / `revolve`), native holes (`Hole`, `CounterSinkHole`), and `split()` instead of OpenSCAD-style CSG cutting boxes.
-- Keep `analyze_part_geometry`, `print_metrics_report` (customized with project-specific fit/overhang checks), and the OpenSCAD + Pillow rendering pipeline intact.
+- Keep `build_web_parts(cfg)`, `analyze_part_geometry`, `print_metrics_report` (customized with project-specific fit/overhang checks), and the OpenSCAD + lazy-imported Pillow rendering pipeline intact so both CLI builds and the static `web/` customizer work out of the box.
 - For multi-part assemblies, export each printable part as its own `.stl` and `.step`, and use `copy.copy(part).move(...)` inside `Compound(...)` for `build/assembly.step` plus `assembly` / `exploded` preview renders.
 - Expose `--part` choices and key dimension overrides on `argparse`.
 
