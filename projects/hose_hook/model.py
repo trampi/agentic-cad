@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from build123d import *
+from build123d import Shape
 
 
 # ====================================================================

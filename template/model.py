@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from build123d import *
+from build123d import Shape
 
 
 # ====================================================================

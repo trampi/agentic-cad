@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from build123d import *
+from build123d import Shape
 
 
 # ====================================================================
