@@ -21,17 +21,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install system OpenGL & X11 runtime libs for OCCT
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libx11-6
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          cache: "pip"
 
       - name: Install build123d
-        run: pip install --upgrade pip && pip install build123d
+        run: python -m pip install --upgrade pip && python -m pip install build123d
 
       - name: Build static gallery & project bundles
-        run: python3 scripts/build_site.py --out _site
+        run: python scripts/build_site.py --out _site
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
