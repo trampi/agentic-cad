@@ -1,8 +1,14 @@
 import { CadViewer, buildBinaryStlFromMesh } from "./viewer.js";
 
-const searchParams = new URLSearchParams(window.location.search);
-const projectSlug = searchParams.get("project");
-const pyodideVersion = searchParams.get("pyodide") || "v314.0.7";
+function getQueryParams() {
+  const sp = new URLSearchParams(window.location.search);
+  return {
+    slug: sp.get("project"),
+    pyodideVersion: sp.get("pyodide") || "v314.0.7",
+  };
+}
+
+let { slug: projectSlug, pyodideVersion } = getQueryParams();
 
 const galleryView = document.getElementById("gallery-view");
 const workspaceView = document.getElementById("workspace-view");
@@ -13,6 +19,9 @@ let currentParams = {};
 let currentParts = [];
 let hasUnsavedCustomParams = false;
 let lastBuildFromWasm = false;
+let galleryLoaded = false;
+let toolbarWired = false;
+let activeViewToken = 0;
 
 let worker = null;
 let kernelReady = false;
@@ -22,6 +31,36 @@ let pendingBuild = false;
 let debounceTimer = null;
 let reqCounter = 0;
 const pendingRequests = new Map();
+
+function isModifiedClick(event) {
+  return event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0;
+}
+
+function renderFatalError(err) {
+  console.error(err);
+  document.body.innerHTML = `<div style="padding:32px;font-family:sans-serif;color:#f87171;">
+    <h2>Failed to load CAD preview</h2>
+    <pre>${escapeHtml(err?.stack || err?.message || String(err))}</pre>
+    <p><a href="./" style="color:#38bdf8;">Back to project gallery</a></p>
+  </div>`;
+}
+
+function navigateTo(slug) {
+  const url = slug ? `?project=${encodeURIComponent(slug)}` : "./";
+  window.history.pushState({ project: slug || null }, "", url);
+  routeToCurrentLocation().catch(renderFatalError);
+}
+
+async function routeToCurrentLocation() {
+  const q = getQueryParams();
+  projectSlug = q.slug;
+  pyodideVersion = q.pyodideVersion;
+  if (projectSlug) {
+    await initWorkspace(projectSlug);
+  } else {
+    await initGallery();
+  }
+}
 
 function escapeHtml(str) {
   return String(str)
@@ -47,10 +86,29 @@ function triggerDownload(blob, filename) {
 // ====================================================================
 
 async function initGallery() {
+  const viewToken = ++activeViewToken;
+  if (debounceTimer) clearTimeout(debounceTimer);
+  pendingBuild = false;
+  projectManifest = null;
+  currentParts = [];
+  hasUnsavedCustomParams = false;
+  lastBuildFromWasm = false;
+
+  if (viewer) {
+    viewer.dispose();
+    viewer = null;
+  }
+
+  document.title = "Parametric CAD Showcase — build123d";
+  workspaceView.classList.add("hidden");
   galleryView.classList.remove("hidden");
+
+  if (galleryLoaded) return;
+
   const resp = await fetch("./manifest.json");
   if (!resp.ok) throw new Error(`Failed to fetch manifest.json (${resp.status})`);
   const manifest = await resp.json();
+  if (viewToken !== activeViewToken) return;
 
   document.getElementById("repo-title").textContent = manifest.repo_title || "Parametric CAD Showcase";
   document.getElementById("repo-subtitle").textContent = manifest.repo_subtitle || "";
@@ -62,6 +120,11 @@ async function initGallery() {
     const card = document.createElement("a");
     card.className = "project-card";
     card.href = `?project=${encodeURIComponent(proj.slug)}`;
+    card.addEventListener("click", (event) => {
+      if (isModifiedClick(event)) return;
+      event.preventDefault();
+      navigateTo(proj.slug);
+    });
 
     const bbox = proj.bbox || {};
     const dimTag = bbox.size_x
@@ -86,6 +149,7 @@ async function initGallery() {
     `;
     grid.appendChild(card);
   }
+  galleryLoaded = true;
 }
 
 // ====================================================================
@@ -132,7 +196,7 @@ function setKernelStatus(stage, text, showOverlay = false) {
 function ensureWorker() {
   if (worker) return worker;
 
-  worker = new Worker("./cad-worker.js", { type: "module" });
+  worker = new Worker(new URL("./cad-worker.js", import.meta.url), { type: "module" });
   worker.onmessage = (event) => {
     const msg = event.data;
     if (msg.type === "status") {
@@ -156,13 +220,15 @@ function ensureWorker() {
 
     if (msg.type === "built") {
       buildInFlight = false;
-      lastBuildFromWasm = true;
-      currentParts = msg.parts;
-      viewer.setParts(msg.parts, { resetCamera: false });
-      renderMetrics(msg.metrics);
-      renderExportButtons(msg.parts);
       resolvePending(msg.reqId, msg);
-      if (pendingBuild) {
+      if (projectManifest && (!msg.slug || msg.slug === projectManifest.slug)) {
+        lastBuildFromWasm = true;
+        currentParts = msg.parts;
+        viewer?.setParts(msg.parts, { resetCamera: false });
+        renderMetrics(msg.metrics);
+        renderExportButtons(msg.parts);
+      }
+      if (pendingBuild && projectManifest) {
         pendingBuild = false;
         dispatchWorkerBuild();
       }
@@ -183,9 +249,32 @@ function ensureWorker() {
   };
 
   worker.onerror = (err) => {
+    console.error("CAD worker error:", err);
     kernelInitializing = false;
     buildInFlight = false;
-    setKernelStatus("err", `Worker crashed: ${err.message}`, false);
+    pendingBuild = false;
+    kernelReady = false;
+    const detail =
+      err?.message ||
+      (err?.filename ? `${err.filename}:${err.lineno || 0}` : "failed to load or parse cad-worker.js");
+    if (worker) {
+      worker.terminate();
+      worker = null;
+    }
+    for (const [, entry] of pendingRequests.entries()) {
+      entry.reject(new Error(`Worker crashed: ${detail}`));
+    }
+    pendingRequests.clear();
+    document.getElementById("load-kernel-btn").textContent = "Enable Live Customizer (WASM)";
+    document.getElementById("load-kernel-btn").disabled = false;
+    setKernelStatus("err", `Worker crashed: ${detail}`, false);
+  };
+
+  worker.onmessageerror = (err) => {
+    console.error("CAD worker message error:", err);
+    kernelInitializing = false;
+    buildInFlight = false;
+    setKernelStatus("err", "Worker message serialization failed", false);
   };
 
   return worker;
@@ -472,12 +561,119 @@ function updateCliPreview() {
   document.getElementById("cli-command").textContent = cmd;
 }
 
+function wireToolbarOnce() {
+  if (toolbarWired) return;
+  toolbarWired = true;
+
+  document.getElementById("back-btn").addEventListener("click", (event) => {
+    if (isModifiedClick(event)) return;
+    event.preventDefault();
+    navigateTo(null);
+  });
+
+  document.querySelectorAll("[data-cam]").forEach((btn) => {
+    btn.addEventListener("click", () => viewer?.setCameraPreset(btn.dataset.cam));
+  });
+
+  const edgesBtn = document.getElementById("toggle-edges-btn");
+  edgesBtn.addEventListener("click", () => {
+    if (!viewer) return;
+    const next = !viewer.showEdges;
+    viewer.setShowEdges(next);
+    edgesBtn.classList.toggle("active", next);
+  });
+
+  const gridBtn = document.getElementById("toggle-grid-btn");
+  gridBtn.addEventListener("click", () => {
+    if (!viewer) return;
+    const next = !viewer.showGrid;
+    viewer.setShowGrid(next);
+    gridBtn.classList.toggle("active", next);
+  });
+
+  const refBtn = document.getElementById("toggle-ref-btn");
+  refBtn.addEventListener("click", () => {
+    if (!viewer) return;
+    const next = !viewer.showReference;
+    viewer.setShowReference(next);
+    refBtn.classList.toggle("active", next);
+  });
+
+  const expBtn = document.getElementById("toggle-exploded-btn");
+  expBtn.addEventListener("click", () => {
+    if (!viewer) return;
+    const next = !viewer.exploded;
+    viewer.setExploded(next);
+    expBtn.classList.toggle("active", next);
+  });
+
+  document.getElementById("load-kernel-btn").addEventListener("click", () => {
+    activateKernel().catch(() => {});
+  });
+
+  document.getElementById("reset-params-btn").addEventListener("click", () => {
+    if (!projectManifest) return;
+    currentParams = { ...(projectManifest.default_config || {}) };
+    renderControls(projectManifest.schema || []);
+    updateCliPreview();
+    if (kernelReady || hasUnsavedCustomParams) {
+      scheduleWorkerBuild();
+    }
+  });
+
+  document.getElementById("copy-cli-btn").addEventListener("click", async () => {
+    const text = document.getElementById("cli-command").textContent;
+    await navigator.clipboard?.writeText(text);
+    const btn = document.getElementById("copy-cli-btn");
+    btn.textContent = "Copied!";
+    setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+  });
+}
+
 async function initWorkspace(slug) {
+  const viewToken = ++activeViewToken;
+  if (debounceTimer) clearTimeout(debounceTimer);
+  pendingBuild = false;
+  hasUnsavedCustomParams = false;
+  lastBuildFromWasm = false;
+
+  if (viewer) {
+    viewer.dispose();
+    viewer = null;
+  }
+
+  galleryView.classList.add("hidden");
   workspaceView.classList.remove("hidden");
+  wireToolbarOnce();
+
+  // Reset per-view toggle button states to match fresh CadViewer defaults
+  document.getElementById("toggle-edges-btn").classList.add("active");
+  document.getElementById("toggle-grid-btn").classList.add("active");
+  document.getElementById("toggle-ref-btn").classList.add("active");
+  document.getElementById("toggle-exploded-btn").classList.remove("active");
+
+  if (kernelReady) {
+    setKernelStatus("ready", "Live CAD Ready (Cached in RAM)", false);
+    document.getElementById("load-kernel-btn").textContent = "CAD Kernel Loaded";
+    document.getElementById("load-kernel-btn").disabled = true;
+    document.getElementById("wasm-hint").classList.add("hidden");
+  } else if (kernelInitializing) {
+    setKernelStatus("busy", "Loading Live CAD Kernel…", false);
+    document.getElementById("load-kernel-btn").textContent = "Loading CAD Kernel…";
+    document.getElementById("load-kernel-btn").disabled = true;
+    document.getElementById("wasm-hint").classList.remove("hidden");
+  } else {
+    setKernelStatus("idle", "Static Preview", false);
+    document.getElementById("load-kernel-btn").textContent = "Enable Live Customizer (WASM)";
+    document.getElementById("load-kernel-btn").disabled = false;
+    document.getElementById("wasm-hint").classList.remove("hidden");
+  }
 
   const manifestResp = await fetch(`./projects/${encodeURIComponent(slug)}/manifest.json`);
   if (!manifestResp.ok) throw new Error(`Project '${slug}' not found (${manifestResp.status})`);
-  projectManifest = await manifestResp.json();
+  const manifest = await manifestResp.json();
+  if (viewToken !== activeViewToken) return;
+  projectManifest = manifest;
 
   document.title = `${projectManifest.title} — build123d`;
   document.getElementById("project-title").textContent = projectManifest.title;
@@ -488,6 +684,7 @@ async function initWorkspace(slug) {
   const meshResp = await fetch(`./${projectManifest.mesh_url}`);
   if (!meshResp.ok) throw new Error(`Failed to load default mesh (${meshResp.status})`);
   const meshBuf = await meshResp.arrayBuffer();
+  if (viewToken !== activeViewToken) return;
   currentParts = unpackBinaryMesh(meshBuf, projectManifest.parts || []);
 
   viewer = new CadViewer(document.getElementById("viewport-canvas-wrap"));
@@ -507,76 +704,11 @@ async function initWorkspace(slug) {
   renderMetrics(projectManifest.metrics || []);
   renderExportButtons(currentParts);
   updateCliPreview();
-
-  // Wire toolbar controls
-  document.querySelectorAll("[data-cam]").forEach((btn) => {
-    btn.addEventListener("click", () => viewer.setCameraPreset(btn.dataset.cam));
-  });
-
-  const edgesBtn = document.getElementById("toggle-edges-btn");
-  edgesBtn.addEventListener("click", () => {
-    const next = !viewer.showEdges;
-    viewer.setShowEdges(next);
-    edgesBtn.classList.toggle("active", next);
-  });
-
-  const gridBtn = document.getElementById("toggle-grid-btn");
-  gridBtn.addEventListener("click", () => {
-    const next = !viewer.showGrid;
-    viewer.setShowGrid(next);
-    gridBtn.classList.toggle("active", next);
-  });
-
-  const refBtn = document.getElementById("toggle-ref-btn");
-  refBtn.addEventListener("click", () => {
-    const next = !viewer.showReference;
-    viewer.setShowReference(next);
-    refBtn.classList.toggle("active", next);
-  });
-
-  const expBtn = document.getElementById("toggle-exploded-btn");
-  expBtn.addEventListener("click", () => {
-    const next = !viewer.exploded;
-    viewer.setExploded(next);
-    expBtn.classList.toggle("active", next);
-  });
-
-  document.getElementById("load-kernel-btn").addEventListener("click", () => {
-    activateKernel().catch(() => {});
-  });
-
-  document.getElementById("reset-params-btn").addEventListener("click", () => {
-    currentParams = { ...(projectManifest.default_config || {}) };
-    renderControls(projectManifest.schema || []);
-    updateCliPreview();
-    if (kernelReady || hasUnsavedCustomParams) {
-      scheduleWorkerBuild();
-    }
-  });
-
-  document.getElementById("copy-cli-btn").addEventListener("click", async () => {
-    const text = document.getElementById("cli-command").textContent;
-    await navigator.clipboard?.writeText(text);
-    const btn = document.getElementById("copy-cli-btn");
-    btn.textContent = "Copied!";
-    setTimeout(() => { btn.textContent = "Copy"; }, 1200);
-  });
 }
 
+window.addEventListener("popstate", () => {
+  routeToCurrentLocation().catch(renderFatalError);
+});
+
 // Entrypoint
-(async () => {
-  try {
-    if (projectSlug) {
-      await initWorkspace(projectSlug);
-    } else {
-      await initGallery();
-    }
-  } catch (err) {
-    console.error(err);
-    document.body.innerHTML = `<div style="padding:32px;font-family:sans-serif;color:#f87171;">
-      <h2>Failed to load CAD preview</h2>
-      <pre>${escapeHtml(err?.stack || err?.message || String(err))}</pre>
-      <p><a href="./" style="color:#38bdf8;">Back to project gallery</a></p>
-    </div>`;
-  }
-})();
+routeToCurrentLocation().catch(renderFatalError);

@@ -2,6 +2,229 @@ let pyodide = null;
 let initialized = false;
 let currentProjectSlug = null;
 
+const WASM_CACHE_PREFIX = "agentic-cad-wasm-";
+const WASM_CACHE_SCHEMA = "v2";
+const IMMUTABLE_CACHE_PREFIXES = [
+  "https://cdn.jsdelivr.net/pyodide/",
+  "https://files.pythonhosted.org/",
+];
+const INDEX_CACHE_PREFIXES = [
+  "https://pypi.org/pypi/",
+  "https://pypi.org/simple/",
+  "https://yeicor.github.io/OCP.wasm/",
+];
+
+let activeCacheName = `${WASM_CACHE_PREFIX}default-${WASM_CACHE_SCHEMA}`;
+let wasmCachePromise = null;
+let lastEvictedFor = null;
+const cacheStats = {
+  available: typeof self.caches !== "undefined",
+  hits: 0,
+  misses: 0,
+  cachedBytes: 0,
+  netBytes: 0,
+};
+
+function resetCacheStats() {
+  cacheStats.hits = 0;
+  cacheStats.misses = 0;
+  cacheStats.cachedBytes = 0;
+  cacheStats.netBytes = 0;
+}
+
+function setActiveCacheVersion(pyodideVersion) {
+  const nextName = `${WASM_CACHE_PREFIX}${pyodideVersion}-${WASM_CACHE_SCHEMA}`;
+  if (nextName !== activeCacheName) {
+    activeCacheName = nextName;
+    wasmCachePromise = null;
+  }
+}
+
+async function evictStaleCacheBuckets(keepName, force = false) {
+  if (typeof self.caches === "undefined" || (!force && lastEvictedFor === keepName)) return;
+  lastEvictedFor = keepName;
+  try {
+    const names = await self.caches.keys();
+    await Promise.all(
+      names
+        .filter((name) => name.startsWith(WASM_CACHE_PREFIX) && name !== keepName)
+        .map((name) => self.caches.delete(name))
+    );
+  } catch (_) {
+    // Ignore storage enumeration failures
+  }
+}
+
+function openWasmCache() {
+  if (typeof self.caches === "undefined") return Promise.resolve(null);
+  if (!wasmCachePromise) {
+    wasmCachePromise = (async () => {
+      try {
+        const cache = await self.caches.open(activeCacheName);
+        await evictStaleCacheBuckets(activeCacheName);
+        return cache;
+      } catch (_) {
+        return null;
+      }
+    })();
+  }
+  return wasmCachePromise;
+}
+
+function resolveRequestUrl(resource) {
+  if (typeof resource === "string") return resource;
+  if (typeof URL !== "undefined" && resource instanceof URL) return resource.href;
+  return resource?.url || resource?.href || "";
+}
+
+function wheelPackageStem(urlStr) {
+  try {
+    const pathname = new URL(urlStr).pathname;
+    const fname = pathname.slice(pathname.lastIndexOf("/") + 1);
+    const m = /^([A-Za-z0-9_.]+)-\d/.exec(fname);
+    return m ? `${m[1]}-` : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function pruneOlderWheelVersions(cache, currentWheelUrl) {
+  const stem = wheelPackageStem(currentWheelUrl);
+  if (!stem) return;
+  try {
+    const keys = await cache.keys();
+    await Promise.all(
+      keys
+        .filter((req) => {
+          if (req.url === currentWheelUrl || !req.url.endsWith(".whl")) return false;
+          const fname = req.url.slice(req.url.lastIndexOf("/") + 1);
+          return fname.startsWith(stem);
+        })
+        .map((req) => cache.delete(req))
+    );
+  } catch (_) {
+    // Non-fatal
+  }
+}
+
+async function putCacheWithQuotaRetry(cache, cacheUrl, response) {
+  try {
+    await cache.put(cacheUrl, response.clone());
+    if (cacheUrl.endsWith(".whl")) {
+      await pruneOlderWheelVersions(cache, cacheUrl);
+    }
+    return true;
+  } catch (err) {
+    if (err?.name === "QuotaExceededError") {
+      try {
+        await evictStaleCacheBuckets(activeCacheName, true);
+        await pruneOlderWheelVersions(cache, cacheUrl);
+        await cache.put(cacheUrl, response.clone());
+        return true;
+      } catch (_) {
+        // Still over quota
+      }
+    }
+    return false;
+  }
+}
+
+function installGlobalFetchCache() {
+  if (typeof self.fetch !== "function" || typeof self.caches === "undefined") return;
+  const rawFetch = self.fetch.bind(self);
+
+  self.fetch = async function cachedFetch(resource, init) {
+    const reqUrl = resolveRequestUrl(resource);
+    const method = (init?.method || (typeof resource !== "string" && !(resource instanceof URL) && resource?.method) || "GET").toUpperCase();
+    const hasRange = Boolean(
+      (init?.headers && new Headers(init.headers).has("Range")) ||
+      (typeof resource !== "string" && !(resource instanceof URL) && resource?.headers?.has("Range"))
+    );
+
+    if (!reqUrl || method !== "GET" || hasRange) {
+      return rawFetch(resource, init);
+    }
+
+    const isImmutable = IMMUTABLE_CACHE_PREFIXES.some((p) => reqUrl.startsWith(p));
+    const isIndex = !isImmutable && INDEX_CACHE_PREFIXES.some((p) => reqUrl.startsWith(p));
+    if (!isImmutable && !isIndex) {
+      return rawFetch(resource, init);
+    }
+
+    const cache = await openWasmCache();
+    if (!cache) {
+      return rawFetch(resource, init);
+    }
+
+    if (isIndex) {
+      // Network-first via browser HTTP cache so new library releases are picked up immediately;
+      // fall back to CacheStorage only if offline.
+      try {
+        const fresh = await rawFetch(resource, init);
+        if (fresh.status === 200 && fresh.type !== "opaque") {
+          await putCacheWithQuotaRetry(cache, reqUrl, fresh);
+        }
+        return fresh;
+      } catch (err) {
+        try {
+          const fallback = await cache.match(reqUrl, { ignoreVary: true });
+          if (fallback) return fallback;
+        } catch (_) {
+          // Ignore cache fallback read error
+        }
+        throw err;
+      }
+    }
+
+    try {
+      const cached = await cache.match(reqUrl, { ignoreVary: true });
+      if (cached) {
+        cacheStats.hits++;
+        cacheStats.cachedBytes += Number(cached.headers.get("content-length") || 0);
+        return cached;
+      }
+    } catch (_) {
+      // Fall through to network if CacheStorage read fails
+    }
+
+    const response = await rawFetch(resource, init);
+    cacheStats.misses++;
+    cacheStats.netBytes += Number(response.headers.get("content-length") || 0);
+    if (response.status === 200 && response.type !== "opaque") {
+      await putCacheWithQuotaRetry(cache, reqUrl, response);
+    }
+    return response;
+  };
+}
+
+installGlobalFetchCache();
+
+async function hasCachedOcpWheel() {
+  const cache = await openWasmCache();
+  if (!cache) return false;
+  try {
+    const keys = await cache.keys();
+    return keys.some((req) => req.url.includes("cadquery_ocp_novtk") && req.url.endsWith(".whl"));
+  } catch (_) {
+    return false;
+  }
+}
+
+function formatCacheReadyDetail() {
+  if (!cacheStats.available) {
+    return "Live CAD Kernel Ready (Cache API disabled on insecure URL)";
+  }
+  const cachedMb = (cacheStats.cachedBytes / (1024 * 1024)).toFixed(1);
+  const netMb = (cacheStats.netBytes / (1024 * 1024)).toFixed(1);
+  if (cacheStats.hits > 0 && cacheStats.misses === 0) {
+    return `Live CAD Kernel Ready (from Cache · ${cachedMb} MB)`;
+  }
+  if (cacheStats.hits > 0) {
+    return `Live CAD Kernel Ready (${cacheStats.hits} cached · ${netMb} MB net)`;
+  }
+  return `Live CAD Kernel Ready (cached ${netMb} MB for reloads)`;
+}
+
 function emitStatus(stage, detail) {
   self.postMessage({ type: "status", stage, detail });
 }
@@ -197,8 +420,18 @@ def export_assembly_step_bytes():
 async function ensureKernel(pyodideVersion = "v314.0.7", extraDeps = []) {
   if (initialized) return;
 
+  setActiveCacheVersion(pyodideVersion);
+  resetCacheStats();
+  await openWasmCache();
+
+  const cachedOcp = await hasCachedOcpWheel();
   const baseUrl = `https://cdn.jsdelivr.net/pyodide/${pyodideVersion}/full/`;
-  emitStatus("busy", `Loading Pyodide (${pyodideVersion})…`);
+  emitStatus(
+    "busy",
+    cachedOcp
+      ? `Loading cached Pyodide (${pyodideVersion})…`
+      : `Loading Pyodide (${pyodideVersion})…`
+  );
 
   const mod = await import(`${baseUrl}pyodide.mjs`);
   pyodide = await mod.loadPyodide({ indexURL: baseUrl });
@@ -209,7 +442,12 @@ async function ensureKernel(pyodideVersion = "v314.0.7", extraDeps = []) {
   pyodide.runPython(BOOTSTRAP_PYTHON);
   pyodide.globals.get("install_stubs")(extraDeps);
 
-  emitStatus("busy", "Downloading OCP.wasm & build123d (~25 MB, cached once)…");
+  emitStatus(
+    "busy",
+    cachedOcp
+      ? "Loading cached OCP.wasm & build123d…"
+      : "Downloading OCP.wasm & build123d (~25 MB, cached once)…"
+  );
   const purePkgs = ["build123d", "anytree>=2.8.0,<3", ...extraDeps];
   await pyodide.runPythonAsync(`
     import importlib
@@ -319,8 +557,8 @@ self.onmessage = async (event) => {
   try {
     if (msg.type === "init") {
       await loadProject(msg.slug, msg.modelUrl, msg.pyodideVersion, msg.extraDeps || []);
-      emitStatus("ready", "Live CAD Kernel Ready");
-      self.postMessage({ type: "inited", reqId: msg.reqId });
+      emitStatus("ready", formatCacheReadyDetail());
+      self.postMessage({ type: "inited", reqId: msg.reqId, slug: msg.slug });
       return;
     }
 
@@ -374,6 +612,7 @@ self.onmessage = async (event) => {
         {
           type: "built",
           reqId: msg.reqId,
+          slug: msg.slug,
           parts: jsParts,
           metrics: JSON.parse(metricsJson),
           elapsedMs,

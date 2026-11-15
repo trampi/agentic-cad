@@ -535,7 +535,7 @@ def serve_directory(directory: Path, port: int):
     handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
     socketserver.TCPServer.allow_reuse_address = True
     with socketserver.TCPServer(("127.0.0.1", port), handler) as httpd:
-        print(f"Serving '{directory}/' at http://127.0.0.1:{port}/ (Ctrl+C to stop)")
+        print(f"Serving '{directory}/' at http://localhost:{port}/ (or http://127.0.0.1:{port}/) (Ctrl+C to stop)")
         try:
             httpd.serve_forever()
         except KeyboardInterrupt:

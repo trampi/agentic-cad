@@ -10,6 +10,8 @@ export class CadViewer {
     this.exploded = false;
     this.partRecords = [];
     this.hasFramedOnce = false;
+    this._disposed = false;
+    this._rafId = 0;
 
     this.scene = new THREE.Scene();
 
@@ -95,9 +97,20 @@ export class CadViewer {
   }
 
   _animate() {
-    requestAnimationFrame(() => this._animate());
+    if (this._disposed) return;
+    this._rafId = requestAnimationFrame(() => this._animate());
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  dispose() {
+    this._disposed = true;
+    if (this._rafId) cancelAnimationFrame(this._rafId);
+    this._resizeObserver.disconnect();
+    this._clearParts();
+    this.controls.dispose();
+    this.renderer.dispose();
+    this.renderer.domElement.remove();
   }
 
   _clearParts() {
