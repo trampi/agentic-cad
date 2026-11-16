@@ -25,7 +25,7 @@ This repository hosts a generalized **Parametric CAD & 3D-Printing Harness** eng
 .
 ├── AGENTS.md                        # Workspace-wide agent instructions & CAD standards
 ├── README.md                        # Repository overview, prerequisites & project index
-├── .gitignore                       # Ignores **/build/, **/preview/, and Python caches
+├── .gitignore                       # Ignores _site/ and Python caches
 ├── .agents/
 │   └── skills/
 │       └── new-project/
@@ -43,6 +43,7 @@ This repository hosts a generalized **Parametric CAD & 3D-Printing Harness** eng
         ├── model.py                 # Parametric wall_mount, hose_hook & assembly generator
         ├── SPEC.md                  # Living specification synchronized with requirements
         ├── README.md
+        ├── photos/                  # Optional tracked real-life photos of printed parts (+ captions.json)
         ├── build/                   # Generated CAD artifacts (.step, .stl, metrics.json)
         └── preview/                 # Generated renderings (*_quad.png, single views, exploded.png)
 ```

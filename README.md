@@ -1,5 +1,7 @@
 # Parametric CAD & 3D-Printing Workspace (`build123d`)
 
+**[Live 3D Showcase & Parametric Customizer →](https://trampi.github.io/agentic-cad/)**
+
 A generalized multi-project CAD workspace engineered for **Agentic Coding**, **support-free FDM 3D printing**, and **Autodesk Fusion STEP exchange**. Every project lives under `projects/<name>/` with its own living specification (`SPEC.md`), parametric Python model (`model.py`), build scripts (`generate.sh`, `clean.sh`), and generated artifacts (`build/`, `preview/`).
 
 ---
@@ -32,11 +34,16 @@ pip install build123d pillow
 ## Quickstart
 
 ### Build & Serve the Static Web Showcase (Gallery + Live 3D Customizer)
+
+Live preview: <https://trampi.github.io/agentic-cad/>
+
 ```bash
 # Build static gallery, default meshes, thumbnails, and parameter schemas into _site/
 python3 scripts/build_site.py --out _site --serve
 # Open http://127.0.0.1:8000/ in your browser
 ```
+
+To include real-life photos of printed parts in the web showcase, add `.jpg`/`.png`/`.webp` images (plus an optional `captions.json` mapping filenames to captions) under `projects/<name>/photos/`. Keep raw photos stripped of EXIF metadata before committing; `build_site.py` also strips EXIF, auto-orients, and generates web thumbnails during the site build.
 
 ### Build an Existing Project (`projects/hose_hook`)
 ```bash

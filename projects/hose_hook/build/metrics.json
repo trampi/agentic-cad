@@ -1,0 +1,70 @@
+{
+  "config": {
+    "stem_type": "hose_hook",
+    "bracket_width": 50.0,
+    "bracket_height": 70.0,
+    "bracket_depth": 12.0,
+    "back_wall_thickness": 4.0,
+    "corner_radius": 4.0,
+    "bottom_margin": 4.0,
+    "slot_width_back": 36.0,
+    "slot_width_front": 30.0,
+    "clearance": 0.35,
+    "screw_diameter": 4.4,
+    "countersink_diameter": 8.7,
+    "countersink_angle": 90.0,
+    "screw_top_y": 16.0,
+    "screw_bottom_y": -14.0,
+    "stem_diameter": 16.0,
+    "stem_length": 50.0,
+    "stem_tilt": -5.0,
+    "base_chamfer": 5.0,
+    "inner_bore": 0.0,
+    "stem_y_factor": 0.42,
+    "collar_diameter": 24.0,
+    "collar_thickness": 4.0,
+    "collar_chamfer_angle": 50.0,
+    "barb_count": 3,
+    "barb_height": 1.2,
+    "barb_length": 7.0,
+    "tip_chamfer": 4.0
+  },
+  "parts": [
+    {
+      "name": "wall_mount",
+      "bbox": {
+        "size_x": 50.0,
+        "size_y": 70.0,
+        "size_z": 12.0,
+        "min_z": 0.0,
+        "max_z": 12.0
+      },
+      "volume_mm3": 25526.2,
+      "bed_flat": true,
+      "top_planar": true,
+      "top_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "name": "hose_hook",
+      "bbox": {
+        "size_x": 35.3,
+        "size_y": 65.65,
+        "size_z": 58.86,
+        "min_z": 0.0,
+        "max_z": 58.86
+      },
+      "volume_mm3": 28372.0,
+      "bed_flat": true,
+      "top_planar": true,
+      "top_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ]
+}

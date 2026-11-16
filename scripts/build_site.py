@@ -14,6 +14,7 @@ import argparse
 import functools
 import http.server
 import importlib.util
+import io
 import json
 import math
 import re
@@ -30,6 +31,9 @@ from typing import Any, Dict, List, Optional, Tuple
 ROOT_DIR = Path(__file__).resolve().parent.parent
 PROJECTS_DIR = ROOT_DIR / "projects"
 WEB_DIR = ROOT_DIR / "web"
+PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif"}
+PHOTO_MAX_PX = 1600
+PHOTO_THUMB_PX = 640
 
 
 def _clean_markdown_text(text: str) -> str:
@@ -419,6 +423,149 @@ def render_isometric_png(
     return _encode_png_rgb(width, height, rgb)
 
 
+def _humanize_photo_caption(filename: str) -> str:
+    """Derive a clean fallback caption from a photo filename."""
+    stem = Path(filename).stem
+    stem = re.sub(r"^\d+[_-]+", "", stem)
+    text = re.sub(r"[_-]+", " ", stem).strip()
+    if not text:
+        return Path(filename).stem
+    return text[0].upper() + text[1:]
+
+
+def _load_photo_captions(photos_dir: Path) -> Dict[str, str]:
+    """Load optional captions mapping from photos/captions.json."""
+    captions_path = photos_dir / "captions.json"
+    if not captions_path.is_file():
+        return {}
+    try:
+        data = json.loads(captions_path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return {str(k): str(v) for k, v in data.items() if isinstance(v, str)}
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"  ! Warning: ignoring invalid {captions_path.name}: {exc}")
+    return {}
+
+
+def _strip_and_resize_photo(
+    src_path: Path,
+    out_photos: Path,
+    base_stem: str,
+) -> Tuple[str, str]:
+    """
+    EXIF-transpose, strip all metadata, convert to sRGB, and emit web-sized
+    full (`<= PHOTO_MAX_PX`) and thumbnail (`<= PHOTO_THUMB_PX`) images.
+    Falls back to copying verbatim when Pillow cannot decode the file.
+    """
+    try:
+        from PIL import Image, ImageCms, ImageOps
+    except ImportError:
+        dest = out_photos / src_path.name
+        shutil.copy2(src_path, dest)
+        return src_path.name, src_path.name
+
+    try:
+        with Image.open(src_path) as im:
+            im = ImageOps.exif_transpose(im)
+            has_alpha = im.mode in ("RGBA", "LA") or (
+                im.mode == "P" and "transparency" in im.info
+            )
+            src_ext = src_path.suffix.lower()
+
+            if has_alpha:
+                clean = Image.frombytes("RGBA", im.size, im.convert("RGBA").tobytes())
+                out_ext = ".webp" if src_ext == ".webp" else ".png"
+                save_fmt = "WEBP" if out_ext == ".webp" else "PNG"
+            else:
+                rgb = im.convert("RGB")
+                icc = im.info.get("icc_profile")
+                if icc:
+                    try:
+                        src_prof = ImageCms.ImageCmsProfile(io.BytesIO(icc))
+                        srgb_prof = ImageCms.createProfile("sRGB")
+                        rgb = ImageCms.profileToProfile(
+                            rgb, src_prof, srgb_prof, outputMode="RGB"
+                        )
+                    except Exception:
+                        pass
+                clean = Image.frombytes("RGB", rgb.size, rgb.tobytes())
+                out_ext = ".webp" if src_ext == ".webp" else ".jpg"
+                save_fmt = "WEBP" if out_ext == ".webp" else "JPEG"
+
+            resample = getattr(Image, "Resampling", Image).LANCZOS
+
+            def _save(img: Any, dest: Path, quality: int):
+                if save_fmt == "JPEG":
+                    img.save(dest, format="JPEG", quality=quality, optimize=True, progressive=True)
+                elif save_fmt == "WEBP":
+                    img.save(dest, format="WEBP", quality=quality, method=4)
+                else:
+                    img.save(dest, format="PNG", optimize=True)
+
+            full_name = f"{base_stem}{out_ext}"
+            full_img = clean.copy()
+            if max(full_img.size) > PHOTO_MAX_PX:
+                full_img.thumbnail((PHOTO_MAX_PX, PHOTO_MAX_PX), resample)
+            _save(full_img, out_photos / full_name, quality=88)
+
+            if max(full_img.size) > PHOTO_THUMB_PX:
+                thumb_name = f"{base_stem}_thumb{out_ext}"
+                thumb_img = full_img.copy()
+                thumb_img.thumbnail((PHOTO_THUMB_PX, PHOTO_THUMB_PX), resample)
+                _save(thumb_img, out_photos / thumb_name, quality=82)
+            else:
+                thumb_name = full_name
+
+            return full_name, thumb_name
+    except Exception as exc:
+        print(f"  ! Warning: could not optimize photo '{src_path.name}' ({exc}); copying raw file.")
+        dest = out_photos / src_path.name
+        shutil.copy2(src_path, dest)
+        return src_path.name, src_path.name
+
+
+def discover_and_bundle_photos(project_dir: Path, proj_out: Path) -> List[Dict[str, str]]:
+    """Discover real-life photos under `projects/<slug>/photos/` and bundle them."""
+    photos_dir = project_dir / "photos"
+    if not photos_dir.is_dir():
+        return []
+
+    photo_files = sorted(
+        (p for p in photos_dir.iterdir() if p.is_file() and p.suffix.lower() in PHOTO_EXTENSIONS),
+        key=lambda p: p.name.lower(),
+    )
+    if not photo_files:
+        return []
+
+    slug = project_dir.name
+    captions = _load_photo_captions(photos_dir)
+    out_photos = proj_out / "photos"
+    out_photos.mkdir(parents=True, exist_ok=True)
+
+    used_stems: set[str] = set()
+    bundled: List[Dict[str, str]] = []
+    for src_path in photo_files:
+        base_stem = src_path.stem
+        if base_stem in used_stems:
+            idx = 2
+            while f"{base_stem}_{idx}" in used_stems:
+                idx += 1
+            base_stem = f"{base_stem}_{idx}"
+        used_stems.add(base_stem)
+
+        full_name, thumb_name = _strip_and_resize_photo(src_path, out_photos, base_stem)
+        caption = captions.get(src_path.name, _humanize_photo_caption(src_path.name))
+        bundled.append(
+            {
+                "url": f"projects/{slug}/photos/{full_name}",
+                "thumb_url": f"projects/{slug}/photos/{thumb_name}",
+                "caption": caption,
+            }
+        )
+
+    return bundled
+
+
 def build_project_bundle(project_dir: Path, out_dir: Path) -> Dict[str, Any]:
     """Generate static viewer assets and default mesh data for one project."""
     slug = project_dir.name
@@ -452,12 +599,15 @@ def build_project_bundle(project_dir: Path, out_dir: Path) -> Dict[str, Any]:
     thumb_rel = f"projects/{slug}/thumb.png"
     (proj_out / "thumb.png").write_bytes(render_isometric_png(svg_inputs))
 
+    photos = discover_and_bundle_photos(project_dir, proj_out)
+
     project_manifest = {
         "slug": slug,
         "title": docs["title"],
         "summary": docs["summary"],
         "has_spec": has_spec,
         "thumb": thumb_rel,
+        "photos": photos,
         "model_url": f"projects/{slug}/model.py",
         "mesh_url": f"projects/{slug}/default_mesh.bin",
         "schema": schema,
@@ -479,6 +629,7 @@ def build_project_bundle(project_dir: Path, out_dir: Path) -> Dict[str, Any]:
         "title": docs["title"],
         "summary": docs["summary"],
         "thumb": thumb_rel,
+        "photos": photos,
         "printable_parts": printable_count,
         "param_count": len(schema),
         "volume_cm3": total_vol_cm3,
@@ -514,7 +665,8 @@ def build_site(out_dir: Path) -> Path:
         project_cards.append(card)
         print(
             f"  ✓ {card['slug']}: {card['param_count']} controls, "
-            f"{card['printable_parts']} printable part(s), {card['volume_cm3']} cm³"
+            f"{card['printable_parts']} printable part(s), {card['volume_cm3']} cm³, "
+            f"{len(card['photos'])} photo(s)"
         )
 
     site_manifest = {

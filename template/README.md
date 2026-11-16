@@ -37,5 +37,6 @@ python3 ../../scripts/build_site.py --out ../../_site --serve
 - [`model.py`](model.py): Main parametric `build123d` CAD model and verification harness.
 - [`generate.sh`](generate.sh): Project build wrapper forwarding options to `model.py`.
 - [`clean.sh`](clean.sh): Cleanup script (`--keep-step`, `--keep-preview`).
-- `build/`: Generated `.step`, `.stl`, and `metrics.json` (gitignored).
-- `preview/`: Generated renderings and 2x2 Quad-View collages `.png` (gitignored).
+- `photos/` *(optional)*: Tracked real-life photos of printed parts (`.jpg`/`.png`/`.webp`) and optional `captions.json`, displayed in the web showcase.
+- `build/`: Generated `.step`, `.stl`, and `metrics.json`.
+- `preview/`: Generated renderings and 2x2 Quad-View collages `.png`.

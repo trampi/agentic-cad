@@ -1,6 +1,4 @@
 # Generated CAD build and preview directories
-**/build/
-**/preview/
 _site/
 
 # Python cache

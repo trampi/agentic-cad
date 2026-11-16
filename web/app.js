@@ -21,7 +21,12 @@ let hasUnsavedCustomParams = false;
 let lastBuildFromWasm = false;
 let galleryLoaded = false;
 let toolbarWired = false;
+let lightboxWired = false;
 let activeViewToken = 0;
+
+let lightboxPhotos = [];
+let lightboxIndex = 0;
+let lightboxReturnFocus = null;
 
 let worker = null;
 let kernelReady = false;
@@ -70,6 +75,90 @@ function escapeHtml(str) {
     .replaceAll('"', "&quot;");
 }
 
+function assetUrl(relPath) {
+  return `./${encodeURI(String(relPath || ""))}`;
+}
+
+// ====================================================================
+// SHARED LIGHTBOX MODAL
+// ====================================================================
+
+function renderLightboxFrame() {
+  const photo = lightboxPhotos[lightboxIndex];
+  if (!photo) return;
+  const img = document.getElementById("lightbox-img");
+  const captionEl = document.getElementById("lightbox-caption");
+  const counterEl = document.getElementById("lightbox-counter");
+  const prevBtn = document.getElementById("lightbox-prev-btn");
+  const nextBtn = document.getElementById("lightbox-next-btn");
+
+  img.src = assetUrl(photo.url);
+  img.alt = photo.caption || "Printed part photo";
+  captionEl.textContent = photo.caption || "";
+  captionEl.classList.toggle("hidden", !photo.caption);
+  counterEl.textContent = `${lightboxIndex + 1} / ${lightboxPhotos.length}`;
+
+  const hasMulti = lightboxPhotos.length > 1;
+  prevBtn.classList.toggle("hidden", !hasMulti);
+  nextBtn.classList.toggle("hidden", !hasMulti);
+}
+
+function openLightbox(photos, startIndex = 0) {
+  if (!photos || photos.length === 0) return;
+  wireLightboxOnce();
+  lightboxReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  lightboxPhotos = photos;
+  lightboxIndex = ((startIndex % photos.length) + photos.length) % photos.length;
+  renderLightboxFrame();
+  document.getElementById("lightbox").classList.remove("hidden");
+  document.getElementById("lightbox-close-btn").focus();
+}
+
+function closeLightbox() {
+  const modal = document.getElementById("lightbox");
+  if (!modal || modal.classList.contains("hidden")) return;
+  modal.classList.add("hidden");
+  document.getElementById("lightbox-img").removeAttribute("src");
+  lightboxPhotos = [];
+  if (lightboxReturnFocus && lightboxReturnFocus.isConnected) {
+    lightboxReturnFocus.focus();
+  }
+  lightboxReturnFocus = null;
+}
+
+function stepLightbox(delta) {
+  if (lightboxPhotos.length <= 1) return;
+  lightboxIndex = (lightboxIndex + delta + lightboxPhotos.length) % lightboxPhotos.length;
+  renderLightboxFrame();
+}
+
+function wireLightboxOnce() {
+  if (lightboxWired) return;
+  lightboxWired = true;
+
+  document.querySelectorAll("[data-lightbox-close]").forEach((el) => {
+    el.addEventListener("click", closeLightbox);
+  });
+  document.getElementById("lightbox-close-btn").addEventListener("click", closeLightbox);
+  document.getElementById("lightbox-prev-btn").addEventListener("click", () => stepLightbox(-1));
+  document.getElementById("lightbox-next-btn").addEventListener("click", () => stepLightbox(1));
+
+  document.addEventListener("keydown", (event) => {
+    const modal = document.getElementById("lightbox");
+    if (!modal || modal.classList.contains("hidden")) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeLightbox();
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      stepLightbox(-1);
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      stepLightbox(1);
+    }
+  });
+}
+
 function triggerDownload(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -88,6 +177,7 @@ function triggerDownload(blob, filename) {
 async function initGallery() {
   const viewToken = ++activeViewToken;
   if (debounceTimer) clearTimeout(debounceTimer);
+  closeLightbox();
   pendingBuild = false;
   projectManifest = null;
   currentParts = [];
@@ -102,6 +192,7 @@ async function initGallery() {
   document.title = "Parametric CAD Showcase — build123d";
   workspaceView.classList.add("hidden");
   galleryView.classList.remove("hidden");
+  wireLightboxOnce();
 
   if (galleryLoaded) return;
 
@@ -117,36 +208,155 @@ async function initGallery() {
   grid.innerHTML = "";
 
   for (const proj of manifest.projects || []) {
-    const card = document.createElement("a");
+    const projUrl = `?project=${encodeURIComponent(proj.slug)}`;
+    const card = document.createElement("article");
     card.className = "project-card";
-    card.href = `?project=${encodeURIComponent(proj.slug)}`;
-    card.addEventListener("click", (event) => {
+
+    const handleNav = (event) => {
       if (isModifiedClick(event)) return;
       event.preventDefault();
       navigateTo(proj.slug);
-    });
+    };
 
     const bbox = proj.bbox || {};
     const dimTag = bbox.size_x
       ? `${bbox.size_x} × ${bbox.size_y} × ${bbox.size_z} mm`
       : "Parametric";
 
-    const thumbUrl = proj.thumb;
-    card.innerHTML = `
-      <div class="card-thumb">
-        <img src="./${escapeHtml(thumbUrl)}" alt="${escapeHtml(proj.title)}" loading="lazy" />
+    const photos = Array.isArray(proj.photos) ? proj.photos : [];
+    const frames = [
+      { type: "cad", src: proj.thumb, alt: proj.title },
+      ...photos.map((p, idx) => ({
+        type: "photo",
+        src: p.thumb_url || p.url,
+        alt: p.caption || `${proj.title} printed photo ${idx + 1}`,
+      })),
+    ];
+
+    const thumbBox = document.createElement("div");
+    thumbBox.className = "card-thumb";
+
+    const thumbLink = document.createElement("a");
+    thumbLink.className = "card-thumb-link";
+    thumbLink.href = projUrl;
+    thumbLink.addEventListener("click", handleNav);
+
+    const thumbImg = document.createElement("img");
+    thumbImg.src = assetUrl(frames[0].src);
+    thumbImg.alt = frames[0].alt;
+    thumbImg.loading = "lazy";
+    thumbLink.appendChild(thumbImg);
+    thumbBox.appendChild(thumbLink);
+
+    if (photos.length > 0) {
+      let frameIdx = 0;
+
+      const modePill = document.createElement("button");
+      modePill.type = "button";
+      modePill.className = "thumb-mode-pill";
+
+      const expandBtn = document.createElement("button");
+      expandBtn.type = "button";
+      expandBtn.className = "thumb-expand-btn hidden";
+      expandBtn.textContent = "⤢";
+      expandBtn.setAttribute("aria-label", "Open full photo");
+      expandBtn.title = "Open full photo";
+
+      const prevBtn = document.createElement("button");
+      prevBtn.type = "button";
+      prevBtn.className = "thumb-nav thumb-nav-prev";
+      prevBtn.innerHTML = "&lsaquo;";
+      prevBtn.setAttribute("aria-label", "Previous preview image");
+
+      const nextBtn = document.createElement("button");
+      nextBtn.type = "button";
+      nextBtn.className = "thumb-nav thumb-nav-next";
+      nextBtn.innerHTML = "&rsaquo;";
+      nextBtn.setAttribute("aria-label", "Next preview image");
+
+      const dotsWrap = document.createElement("div");
+      dotsWrap.className = "thumb-dots";
+      const dots = frames.map((fr, idx) => {
+        const dot = document.createElement("button");
+        dot.type = "button";
+        dot.className = "thumb-dot";
+        dot.setAttribute("aria-label", idx === 0 ? "Show CAD render" : `Show printed photo ${idx}`);
+        dot.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setFrame(idx);
+        });
+        dotsWrap.appendChild(dot);
+        return dot;
+      });
+
+      const setFrame = (nextIdx) => {
+        frameIdx = (nextIdx + frames.length) % frames.length;
+        const active = frames[frameIdx];
+        thumbImg.src = assetUrl(active.src);
+        thumbImg.alt = active.alt;
+
+        const isPhoto = active.type === "photo";
+        modePill.textContent = isPhoto
+          ? "CAD"
+          : `Photos (${photos.length})`;
+        modePill.setAttribute(
+          "aria-label",
+          isPhoto ? "Switch to CAD render" : "Switch to printed photos"
+        );
+        expandBtn.classList.toggle("hidden", !isPhoto);
+        dots.forEach((d, idx) => d.classList.toggle("active", idx === frameIdx));
+      };
+
+      modePill.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setFrame(frameIdx === 0 ? 1 : 0);
+      });
+
+      expandBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (frameIdx > 0) openLightbox(photos, frameIdx - 1);
+      });
+
+      prevBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setFrame(frameIdx - 1);
+      });
+
+      nextBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setFrame(frameIdx + 1);
+      });
+
+      setFrame(0);
+      thumbBox.append(modePill, expandBtn, prevBtn, nextBtn, dotsWrap);
+    }
+
+    const body = document.createElement("div");
+    body.className = "card-body";
+    body.innerHTML = `
+      <h2><a class="card-title-link" href="${projUrl}">${escapeHtml(proj.title)}</a></h2>
+      <p class="card-summary">${escapeHtml(proj.summary)}</p>
+      <div class="card-meta">
+        <span class="tag">${escapeHtml(dimTag)}</span>
+        <span class="tag">${proj.volume_cm3} cm³</span>
+        <span class="tag">${proj.param_count} sliders</span>
       </div>
-      <div class="card-body">
-        <h2>${escapeHtml(proj.title)}</h2>
-        <p class="card-summary">${escapeHtml(proj.summary)}</p>
-        <div class="card-meta">
-          <span class="tag">${escapeHtml(dimTag)}</span>
-          <span class="tag">${proj.volume_cm3} cm³</span>
-          <span class="tag">${proj.param_count} sliders</span>
-        </div>
-        <div class="card-cta">Open 3D Viewer &amp; Customizer &rarr;</div>
-      </div>
+      <a class="card-cta" href="${projUrl}">Open 3D Viewer &amp; Customizer &rarr;</a>
     `;
+    body.querySelectorAll("a").forEach((link) => {
+      link.addEventListener("click", handleNav);
+    });
+    body.addEventListener("click", (event) => {
+      if (event.target.closest("a") || window.getSelection()?.toString()) return;
+      handleNav(event);
+    });
+
+    card.append(thumbBox, body);
     grid.appendChild(card);
   }
   galleryLoaded = true;
@@ -630,9 +840,45 @@ function wireToolbarOnce() {
   });
 }
 
+function renderPhotosPanel(photos) {
+  const panel = document.getElementById("photos-panel");
+  const countEl = document.getElementById("photos-count");
+  const grid = document.getElementById("photos-grid");
+  grid.innerHTML = "";
+
+  if (!photos || photos.length === 0) {
+    panel.classList.add("hidden");
+    countEl.textContent = "";
+    return;
+  }
+
+  panel.classList.remove("hidden");
+  countEl.textContent = `(${photos.length})`;
+  grid.classList.toggle("single", photos.length === 1);
+
+  photos.forEach((photo, idx) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "photo-thumb-btn";
+    btn.title = photo.caption || `Printed photo ${idx + 1}`;
+    btn.setAttribute("aria-label", `Open photo ${idx + 1}: ${photo.caption || "Printed piece"}`);
+
+    const img = document.createElement("img");
+    img.src = assetUrl(photo.thumb_url || photo.url);
+    img.alt = photo.caption || `Printed piece photo ${idx + 1}`;
+    img.loading = "lazy";
+
+    btn.appendChild(img);
+    btn.addEventListener("click", () => openLightbox(photos, idx));
+    grid.appendChild(btn);
+  });
+}
+
 async function initWorkspace(slug) {
   const viewToken = ++activeViewToken;
   if (debounceTimer) clearTimeout(debounceTimer);
+  closeLightbox();
+  renderPhotosPanel([]);
   pendingBuild = false;
   hasUnsavedCustomParams = false;
   lastBuildFromWasm = false;
@@ -645,6 +891,7 @@ async function initWorkspace(slug) {
   galleryView.classList.add("hidden");
   workspaceView.classList.remove("hidden");
   wireToolbarOnce();
+  wireLightboxOnce();
 
   // Reset per-view toggle button states to match fresh CadViewer defaults
   document.getElementById("toggle-edges-btn").classList.add("active");
@@ -700,6 +947,7 @@ async function initWorkspace(slug) {
   document.getElementById("toggle-ref-btn").classList.toggle("hidden", !hasReference);
   document.getElementById("toggle-exploded-btn").classList.toggle("hidden", !hasExploded);
 
+  renderPhotosPanel(projectManifest.photos || []);
   renderControls(projectManifest.schema || []);
   renderMetrics(projectManifest.metrics || []);
   renderExportButtons(currentParts);

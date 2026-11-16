@@ -1,0 +1,61 @@
+{
+  "config": {
+    "tier1_width": 92.0,
+    "tier2_width": 105.0,
+    "tier3_width": 128.0,
+    "tier4_width": 172.0,
+    "corner_radius": 10.0,
+    "tilt_angle": 30.0,
+    "base_thickness": 6.0,
+    "tier_step": 4.0,
+    "rib_thickness": 7.0,
+    "front_lip_depth": 12.0,
+    "profile_fillet_radius": 2.5,
+    "rail_width": 16.0,
+    "cutout_xy_fillet_radius": 8.0,
+    "cutout_floor_z": 2.4,
+    "cutout_fillet_radius": 5.0,
+    "slot1_width": 20.0,
+    "slot2_width": 20.0,
+    "slot3_width": 35.0,
+    "slot4_width": 36.0,
+    "slot1_backrest": 28.0,
+    "slot2_backrest": 36.0,
+    "slot3_backrest": 42.0,
+    "slot4_backrest": 48.0,
+    "show_remote_boxes": true,
+    "light_length": 125.0,
+    "light_height": 38.0,
+    "light_thickness": 15.0,
+    "firetv_length": 140.0,
+    "firetv_height": 38.0,
+    "firetv_thickness": 16.0,
+    "lg_length": 171.0,
+    "lg_height": 45.0,
+    "lg_thickness": 30.0,
+    "bose_length": 230.0,
+    "bose_height": 65.0,
+    "bose_thickness": 31.0
+  },
+  "parts": [
+    {
+      "name": "remote_stand",
+      "bbox": {
+        "size_x": 172.0,
+        "size_y": 200.51,
+        "size_z": 59.22,
+        "min_z": 0.0,
+        "max_z": 59.22
+      },
+      "volume_mm3": 283765.1,
+      "surface_area_mm2": 85628.7,
+      "bed_flat": true,
+      "top_planar": true,
+      "top_normal": [
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ]
+}

@@ -43,5 +43,6 @@ Parametric CAD and 3D-printing project for a modular dovetail mounting system (e
 - [`model.py`](model.py): Main parametric CAD model and verification harness.
 - [`generate.sh`](generate.sh): Build wrapper forwarding CLI flags to `model.py`.
 - [`clean.sh`](clean.sh): Cleanup script (`--keep-step`, `--keep-preview`).
-- `build/`: Generated `.step`, `.stl`, and `metrics.json` (gitignored).
-- `preview/`: Generated renderings and Quad-View collages `.png` (gitignored).
+- [`photos/`](photos/): Real-life photos of the printed & installed pieces (`captions.json` for descriptions).
+- `build/`: Generated `.step`, `.stl`, and `metrics.json`.
+- `preview/`: Generated renderings and Quad-View collages `.png`.
